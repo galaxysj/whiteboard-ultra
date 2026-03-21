@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg viewBox="0 0 300 420" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="sh">
+      <feDropShadow dx="1" dy="3" stdDeviation="4" flood-color="#0002"/>
+    </filter>
+  </defs>
+  <line x1="138" y1="96" x2="75" y2="310" stroke="#E0607A" stroke-width="9" stroke-linecap="butt" filter="url(#sh)"/>
+  <g transform="matrix(0.949972, 0.312335, -0.312335, 0.949972, 75, 310)" filter="url(#sh)">
+    <polygon points="-4.482 0.135 4.504 -0.176 0.018 24.135" fill="#bbb" style=""/>
+    <polygon points="-2.258 11.974 2.258 12.012 0.014 24.167" fill="#444" style=""/>
+  </g>
+  <line x1="162" y1="96" x2="225" y2="310" stroke="#222" stroke-width="9" stroke-linecap="butt" filter="url(#sh)"/>
+  <g transform="matrix(1, 0, 0, 1, 0.514076, 3.084455)">
+    <g>
+      <circle cx="150" cy="80" r="22" fill="#F5A623" filter="url(#sh)"/>
+    </g>
+    <circle cx="150" cy="80" r="10" fill="#C47800" filter="url(#sh)"/>
+  </g>
+  <polygon points="220.624 311.375 229.323 308.588 232.566 332.488" fill="#F0D9A0" filter="url(#sh)" style="stroke-width: 0.795;"/>
+  <polygon points="227.191 322.929 231.106 321.658 232.565 332.552" filter="url(#sh)" style="stroke-width: 0.795;"/>
+</svg>
