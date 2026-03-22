@@ -40,6 +40,7 @@ import {
   Scan,
   Send,
   Settings2,
+  SquareMousePointer,
   SquareCode,
   Sparkles,
   Type,
@@ -133,7 +134,7 @@ type DropdownOption = {
   value: string
   label: string
 }
-type CanvasToolId = ToolId | 'eraser-stroke' | 'dot' | 'calculator'
+type CanvasToolId = ToolId | 'drag-select' | 'eraser-stroke' | 'dot' | 'calculator'
 type DraftState =
   | { type: 'shape'; tool: 'line' | 'arrow' | 'rectangle' | 'ellipse'; start: Point; end: Point }
   | { type: 'pen'; rawPoints: Point[]; points: Point[] }
@@ -141,6 +142,7 @@ type DraftState =
   | null
 type DragState =
   | { kind: 'canvas'; start: Point; origin: { x: number; y: number } }
+  | { kind: 'selection-box'; start: Point; end: Point }
   | { kind: 'move'; elementId: string; start: Point; original: BoardElement }
   | { kind: 'resize'; elementId: string; start: Point; original: BoardElement }
   | {
@@ -248,6 +250,10 @@ const TOOL_DEFS: Array<{ id: CanvasToolId; label: string; category: ToolCategory
   { id: 'protractor', label: 'Protractor', category: 'math', icon: Gauge },
 ]
 const CATEGORY_TOOL_DEFS = TOOL_DEFS.filter((item) => item.id !== 'select')
+const FIXED_TOOL_DEFS: Array<{ id: Extract<CanvasToolId, 'select' | 'drag-select'>; label: string; icon: typeof MousePointer2 }> = [
+  { id: 'select', label: 'Select', icon: MousePointer2 },
+  { id: 'drag-select', label: 'Drag Select', icon: SquareMousePointer },
+]
 const CATEGORY_DEFS: Array<{ id: ToolCategory; label: string; icon: typeof MousePointer2 }> = [
   { id: 'general', label: 'Pen tools', icon: Pen },
   { id: 'file', label: 'Embed tools', icon: File },
@@ -413,7 +419,6 @@ function CustomDropdown({
   )
 }
 
-const sizeFormatter = new Intl.NumberFormat('en-US')
 const boardCenter = () => ({
   x: CANVAS_WIDTH / 2 - 800,
   y: CANVAS_HEIGHT / 2 - 600,
@@ -1126,6 +1131,57 @@ const elementBoundsHit = (element: BoardElement, point: Point) => {
     point.y <= element.y + element.height
   )
 }
+const getElementSelectionBounds = (element: BoardElement) => {
+  if (element.type === 'compass') {
+    const { hinge, leftStart, leftTip, rightStart, rightTip } = getCompassGeometry(element)
+    const xs = [hinge.x, leftStart.x, leftTip.x, rightStart.x, rightTip.x]
+    const ys = [hinge.y, leftStart.y, leftTip.y, rightStart.y, rightTip.y]
+    return {
+      x: Math.min(...xs),
+      y: Math.min(...ys),
+      width: Math.max(...xs) - Math.min(...xs),
+      height: Math.max(...ys) - Math.min(...ys),
+    }
+  }
+  if (element.type === 'line' || element.type === 'arrow') {
+    const start = element.linePoints?.[0] ?? { x: 0, y: element.height }
+    const end = element.linePoints?.[1] ?? { x: element.width, y: 0 }
+    const worldStart = { x: element.x + start.x, y: element.y + start.y }
+    const worldEnd = { x: element.x + end.x, y: element.y + end.y }
+    const padding = Math.max(10, element.strokeWidth * 3)
+    const minX = Math.min(worldStart.x, worldEnd.x) - padding
+    const maxX = Math.max(worldStart.x, worldEnd.x) + padding
+    const minY = Math.min(worldStart.y, worldEnd.y) - padding
+    const maxY = Math.max(worldStart.y, worldEnd.y) + padding
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+  }
+  if (!element.rotation) {
+    return { x: element.x, y: element.y, width: element.width, height: element.height }
+  }
+  const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 }
+  const corners = [
+    { x: element.x, y: element.y },
+    { x: element.x + element.width, y: element.y },
+    { x: element.x + element.width, y: element.y + element.height },
+    { x: element.x, y: element.y + element.height },
+  ].map((corner) => rotateAround(corner, center, degreesToRadians(element.rotation)))
+  const xs = corners.map((corner) => corner.x)
+  const ys = corners.map((corner) => corner.y)
+  return {
+    x: Math.min(...xs),
+    y: Math.min(...ys),
+    width: Math.max(...xs) - Math.min(...xs),
+    height: Math.max(...ys) - Math.min(...ys),
+  }
+}
+const rectsIntersect = (
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+) =>
+  a.x <= b.x + b.width &&
+  a.x + a.width >= b.x &&
+  a.y <= b.y + b.height &&
+  a.y + a.height >= b.y
 const isSelectableElement = (element: BoardElement) => element.type !== 'pen'
 const compareElementStack = (a: BoardElement, b: BoardElement) => {
   if (a.type === 'compass' && b.type !== 'compass') return 1
@@ -1545,6 +1601,14 @@ export function WhiteboardPage() {
       const isTyping = isTypingTarget(event.target) || editingTextIdRef.current != null
       const key = event.key.toLowerCase()
 
+      if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && key === 's') {
+        if (isTyping) return
+        event.preventDefault()
+        setEditingTextId(null)
+        setTool('drag-select')
+        return
+      }
+
       if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && key === 's') {
         if (isTyping) return
         event.preventDefault()
@@ -1657,6 +1721,7 @@ export function WhiteboardPage() {
 
   const topElementAt = (point: Point) =>
     sortByZ(elements).find((element) => isSelectableElement(element) && elementBoundsHit(element, point))
+  const isSelectionTool = tool === 'select' || tool === 'drag-select'
   const eraseAtPoints = (source: BoardElement[], points: Point[]) => {
     if (points.length === 0) return source
     const next = source.filter(
@@ -1687,7 +1752,7 @@ export function WhiteboardPage() {
       setDrag(nextDrag)
       return
     }
-    if (tool === 'select') {
+    if (isSelectionTool) {
       const selectedElement =
         selectedElementId != null
           ? elements.find((element) => element.id === selectedElementId) ?? null
@@ -1714,7 +1779,10 @@ export function WhiteboardPage() {
       const hit = topElementAt(point)
       if (!hit) {
         setSelectedElementId(null)
-        const nextDrag: DragState = { kind: 'canvas', start: { x: event.clientX, y: event.clientY }, origin: { x: viewport.x, y: viewport.y } }
+        const nextDrag: DragState =
+          tool === 'drag-select'
+            ? { kind: 'selection-box', start: point, end: point }
+            : { kind: 'canvas', start: { x: event.clientX, y: event.clientY }, origin: { x: viewport.x, y: viewport.y } }
         dragRef.current = nextDrag
         setDrag(nextDrag)
         return
@@ -2042,6 +2110,12 @@ export function WhiteboardPage() {
         return { ...prev, ...next }
       })
     }
+    if (activeDrag?.kind === 'selection-box') {
+      const nextDrag: DragState = { ...activeDrag, end: point }
+      dragRef.current = nextDrag
+      setDrag(nextDrag)
+      return
+    }
     if (activeDrag?.kind === 'move') {
       const dx = point.x - activeDrag.start.x
       const dy = point.y - activeDrag.start.y
@@ -2230,6 +2304,15 @@ export function WhiteboardPage() {
       } else {
         commitElements(updatedElements)
       }
+    } else if (activeDrag?.kind === 'selection-box') {
+      const selectionRect = normalizeRect(activeDrag.start, activeDrag.end)
+      const isClickSelection = distance(activeDrag.start, activeDrag.end) < 4
+      const nextSelected = isClickSelection
+        ? topElementAt(activeDrag.end)?.id ?? null
+        : sortByZ(elementsRef.current).find((element) =>
+            isSelectableElement(element) && rectsIntersect(selectionRect, getElementSelectionBounds(element)),
+          )?.id ?? null
+      setSelectedElementId(nextSelected)
     } else if (
       activeDrag?.kind === 'move' ||
       activeDrag?.kind === 'compass-radius' ||
@@ -3101,11 +3184,11 @@ export function WhiteboardPage() {
     if (drag?.kind === 'move' || drag?.kind === 'canvas') {
       return 'grabbing'
     }
-    if (tool === 'select') {
+    if (isSelectionTool) {
       return 'grab'
     }
     return 'default'
-  }, [drag, tool])
+  }, [drag, isSelectionTool])
 
   useEffect(() => {
     const canvas = penCanvasRef.current
@@ -3192,8 +3275,18 @@ export function WhiteboardPage() {
         drawEllipsePreview(ctx, x, y, width, height, shapeFilled)
       }
     }
+    if (drag?.kind === 'selection-box') {
+      const { x, y, width, height } = normalizeRect(drag.start, drag.end)
+      ctx.fillStyle = 'rgba(47, 116, 150, 0.12)'
+      ctx.strokeStyle = 'rgba(47, 116, 150, 0.9)'
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([6, 4])
+      ctx.fillRect(x, y, width, height)
+      ctx.strokeRect(x, y, width, height)
+      ctx.setLineDash([])
+    }
     ctx.restore()
-  }, [compassDrawPreview, draft, draftPenPreview, shapeColor, shapeFilled, shapeStrokeWidth, viewport, visibleWorldRect])
+  }, [compassDrawPreview, drag, draft, draftPenPreview, shapeColor, shapeFilled, shapeStrokeWidth, viewport, visibleWorldRect])
 
   return (
     <div className="app-shell">
@@ -3401,7 +3494,7 @@ export function WhiteboardPage() {
                 </label>
               </>
             ) : null}
-            {(tool === 'text' || (tool === 'select' && selectedTextElement)) ? (
+            {(tool === 'text' || (isSelectionTool && selectedTextElement)) ? (
               <label className="eraser-size" title="Text size">
                 <Type size={13} />
                 <input
@@ -3424,7 +3517,7 @@ export function WhiteboardPage() {
                 <span>{selectedTextElement?.fontSize ?? 28}pt</span>
               </label>
             ) : null}
-            {tool === 'select' && selectedCompassElement ? (
+            {isSelectionTool && selectedCompassElement ? (
               <>
                 <label className="eraser-size" title="Compass stroke thickness">
                   <Compass size={13} />
@@ -3470,7 +3563,7 @@ export function WhiteboardPage() {
                 </label>
               </>
             ) : null}
-            {tool === 'select' && selectedGraphElement ? (
+            {isSelectionTool && selectedGraphElement ? (
               <>
                 <label className="graph-range-control" title="X min">
                   <span>Xmin</span>
@@ -3586,15 +3679,21 @@ export function WhiteboardPage() {
               aria-label="Whiteboard tools"
               onPointerDown={(event) => event.stopPropagation()}
             >
-              <button
-                className={tool === 'select' ? 'active tool-button tool-select-fixed' : 'tool-button tool-select-fixed'}
-                title="Select"
-                aria-label="Select"
-                data-tooltip="Select"
-                onClick={() => handleToolSelect('select')}
-              >
-                <MousePointer2 size={16} />
-              </button>
+              {FIXED_TOOL_DEFS.map((item) => {
+                const Icon = item.icon
+                return (
+                  <button
+                    key={item.id}
+                    className={tool === item.id ? 'active tool-button tool-select-fixed' : 'tool-button tool-select-fixed'}
+                    title={item.label}
+                    aria-label={item.label}
+                    data-tooltip={item.label}
+                    onClick={() => handleToolSelect(item.id)}
+                  >
+                    <Icon size={16} />
+                  </button>
+                )
+              })}
               {(openToolCategory
                 ? CATEGORY_DEFS.filter((category) => category.id === openToolCategory)
                 : CATEGORY_DEFS
@@ -3728,11 +3827,11 @@ export function WhiteboardPage() {
                 const selected = element.id === selectedElementId
                 const visuallySelected = selected && element.type !== 'compass'
                 const graphInlineEditorHeight =
-                  selected && tool === 'select' && element.type === 'graph'
+                  selected && isSelectionTool && element.type === 'graph'
                     ? getGraphInlineEditorHeight(graphExpressionDrafts.length)
                     : 0
                 const interactiveInSelectMode =
-                  tool === 'select' &&
+                  isSelectionTool &&
                   !drag &&
                   ((isCalculatorHTMLElement(element) ||
                     (selected &&
@@ -4002,7 +4101,7 @@ export function WhiteboardPage() {
                     {element.type === 'code' ? (
                       <div className="code-block" onPointerDown={(event) => selected && event.stopPropagation()}>
                         <div className="code-block-head">{element.language}</div>
-                        {selected && tool === 'select' ? (
+                        {selected && isSelectionTool ? (
                           <textarea
                             className="code-block-input"
                             value={element.code}
@@ -4056,13 +4155,13 @@ export function WhiteboardPage() {
                             fontSize: 15,
                             wordWrap: 'on',
                             lineNumbers: 'on',
-                            readOnly: !(tool === 'select' && selected),
+                            readOnly: !(isSelectionTool && selected),
                             scrollBeyondLastLine: false,
                             overviewRulerLanes: 0,
                             padding: { top: 12, bottom: 12 },
                           }}
                           onChange={(value: string | undefined) => {
-                            if (!(tool === 'select' && selected)) return
+                            if (!(isSelectionTool && selected)) return
                             setElements((prev) =>
                               prev.map((item) =>
                                 item.id === element.id && item.type === 'monaco'
@@ -4175,7 +4274,7 @@ export function WhiteboardPage() {
                     {element.type === 'graph' ? (
                       <div className="graph" onPointerDown={(event) => selected && event.stopPropagation()}>
                         {(() => {
-                          const isInlineEditorOpen = selected && tool === 'select'
+                          const isInlineEditorOpen = selected && isSelectionTool
                           const editorRowCount = Math.max(1, graphExpressionDrafts.length)
                           const inlineEditorHeight = isInlineEditorOpen ? getGraphInlineEditorHeight(editorRowCount) : 0
                           const plotHeight = Math.max(72, Math.floor(element.height))
