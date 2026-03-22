@@ -4786,12 +4786,17 @@ export function WhiteboardPage() {
                           />
                           <input
                             value={provider.baseUrl}
+                            disabled={provider.providerType !== 'compatible'}
                             onChange={(event) =>
                               setProviderPresets((prev) =>
                                 prev.map((item) => (item.id === provider.id ? { ...item, baseUrl: event.target.value } : item)),
                               )
                             }
-                            placeholder="Base URL (compatible)"
+                            placeholder={
+                              provider.providerType === 'compatible'
+                                ? 'Base URL (compatible)'
+                                : 'Base URL available for Compatible only'
+                            }
                           />
                           <input
                             type="password"
