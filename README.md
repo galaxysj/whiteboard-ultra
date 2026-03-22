@@ -27,7 +27,8 @@ Finally, start the app.
 ```bash
 npm run dev
 ```
-Now, go to http://localhost:5173 or http://SERVER-IP:5173 to use the board
+Now, go to http://localhost:5173 or http://SERVER-IP:5173 to use the board|
+I recommend using this project on https:// to use embed features.
 
 ## Features
 - AI Tools: Insert, Build, and Ask about your board.
