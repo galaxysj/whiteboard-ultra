@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
       
-    "start": "concurrently \"node dist/server/server/index.js\" \"vite preview --host 0.0.0.0\"",
+    "start": "concurrently \"tsx server/index.ts\" \"vite\"",
     "dev": "concurrently \"tsx watch server/index.ts\" \"vite\"",
     "build": "npm run build:server && npm run build:client",
     "build:client": "tsc -b tsconfig.json && vite build",
