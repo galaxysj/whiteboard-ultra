@@ -3293,10 +3293,18 @@ export function WhiteboardPage() {
       <header className="topbar">
         <div className="brand">
           
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img
+            src="/favicon.svg"
+            alt="Whiteboard Ultra"
+            style={{ width: 45, height: 45, display: 'block' }}
+          />
           <div>
             <strong>Whiteboard Ultra</strong>
             <span>{statusMessage}</span>
           </div>
+        </div>
+
         </div>
         <div className="board-controls">
           <select
