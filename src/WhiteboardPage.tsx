@@ -370,17 +370,10 @@ const parseModelPresets = (raw: string | null) => {
 const normalizeContextSize = (value: string) => {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_CONTEXT_SIZE
-  return Math.max(1024, Math.trunc(parsed))
+  return Math.trunc(parsed)
 }
 
 const sanitizeContextSizeInput = (value: string) => value.replace(/\D/g, '')
-
-const finalizeContextSizeInput = (value: string) => {
-  const sanitized = sanitizeContextSizeInput(value)
-  if (!sanitized) return ''
-  const trimmed = sanitized.replace(/^0+(\d)/, '$1')
-  return trimmed || '0'
-}
 
 function CustomDropdown({
   value,
@@ -2638,12 +2631,6 @@ export function WhiteboardPage() {
   }
 
   const saveAIConfiguration = async () => {
-    setModelPresets((prev) =>
-      prev.map((item) => ({
-        ...item,
-        contextSize: finalizeContextSizeInput(item.contextSize) || String(DEFAULT_CONTEXT_SIZE),
-      })),
-    )
     const target = buildSelectedAISettings()
     if (!target) {
       setStatusMessage('Select a valid model/provider pair.')
@@ -4897,15 +4884,6 @@ export function WhiteboardPage() {
                                 prev.map((item) =>
                                   item.id === model.id
                                     ? { ...item, contextSize: sanitizeContextSizeInput(event.target.value) }
-                                    : item,
-                                ),
-                              )
-                            }
-                            onBlur={(event) =>
-                              setModelPresets((prev) =>
-                                prev.map((item) =>
-                                  item.id === model.id
-                                    ? { ...item, contextSize: finalizeContextSizeInput(event.target.value) }
                                     : item,
                                 ),
                               )
