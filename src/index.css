@@ -1915,39 +1915,30 @@ h3 {
 
 .chat-message-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(0, 0, 0, 0.04);
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.chat-assistant-block:hover .chat-message-actions {
+  gap: 10px;
+  margin-top: 6px;
+  padding-left: 4px;
   opacity: 1;
 }
 
 .msg-action-btn {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: none !important;
+  border: none !important;
   cursor: pointer;
-  color: #555;
-  width: 28px;
-  height: 28px;
+  color: #888;
+  width: auto !important;
+  height: auto !important;
   display: flex !important;
   align-items: center;
   justify-content: center;
-  border-radius: 2px;
   transition: all 0.2s ease;
-  padding: 0 !important;
+  padding: 2px !important;
+  box-shadow: none !important;
 }
 
 .msg-action-btn:hover {
-  background: #ffffff !important;
-  border-color: rgba(47, 116, 150, 0.3) !important;
   color: #1a73e8 !important;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .msg-action-btn:active {
