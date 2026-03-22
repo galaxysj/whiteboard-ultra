@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-      
-    "start": "concurrently \"tsx server/index.ts\" \"vite\"",
+
+    "start": "cross-env NODE_ENV=production node dist/server/server/index.js",
     "dev": "concurrently \"tsx watch server/index.ts\" \"vite\"",
     "build": "npm run build:server && npm run build:client",
     "build:client": "tsc -b tsconfig.json && vite build",
@@ -50,6 +50,7 @@
     "@types/react-plotly.js": "^2.6.4",
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",

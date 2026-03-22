@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import cors from 'cors'
 import express from 'express'
 import multer from 'multer'
@@ -30,9 +31,13 @@ import type {
 } from '../shared/types.js'
 
 const app = express()
-const port = 3001
+const port = Number(process.env.PORT || 5173)
 const host = process.env.HOST || '0.0.0.0'
 const uploadsDir = getUploadsDir()
+const isProduction = process.env.NODE_ENV === 'production'
+const currentDir = path.dirname(fileURLToPath(import.meta.url))
+const clientDistDir = path.resolve(currentDir, '../../client')
+const clientIndexPath = path.join(clientDistDir, 'index.html')
 
 app.use(cors())
 app.use(express.json({ limit: '20mb' }))
@@ -311,11 +316,28 @@ app.post('/api/agent/build', async (req, res) => {
   }
 })
 
+if (isProduction && fs.existsSync(clientIndexPath)) {
+  app.use(express.static(clientDistDir))
+  app.get('/{*path}', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+      next()
+      return
+    }
+    res.sendFile(clientIndexPath)
+  })
+}
+
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found.' })
 })
 
-app.listen(port, host, () => {
+const server = app.listen(port, host, () => {
   fs.mkdirSync(uploadsDir, { recursive: true })
-  console.log(`Whiteboard Ultra API running on http://${host}:${port}`)
+  console.log(`Whiteboard Ultra running on http://${host}:${port}`)
 })
+
+server.on('close', () => {
+  console.log('Whiteboard Ultra server closed')
+})
+
+;(globalThis as typeof globalThis & { __whiteboardServer?: typeof server }).__whiteboardServer = server
