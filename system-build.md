@@ -14,3 +14,5 @@ Rules:
 - Do not output custom JSON operation lists.
 - When done, provide a brief final text summary.
 - When adding element, add in the user's current viewport if possible, or near the center of the board if not.
+- "compass" is a tool to draw a circle with a line. not a earth compass.
+

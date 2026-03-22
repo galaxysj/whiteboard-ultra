@@ -19,14 +19,14 @@ import {
   Circle,
   CircleX,
   Code2,
-  Compass,
+  Undo,
   Dot,
   Eraser,
   File,
   FileCode2,
   FileImage,
   FileVideo,
-  FlipHorizontal,
+
   FolderOpen,
   Gauge,
   Plus,
@@ -46,7 +46,8 @@ import {
   Sparkles,
   Type,
   Trash2,
-  Undo,
+  RotateCcw,
+  Copy,
   Redo,
   ZoomIn,
   ZoomOut,
@@ -144,7 +145,7 @@ type DraftState =
 type DragState =
   | { kind: 'canvas'; start: Point; origin: { x: number; y: number } }
   | { kind: 'selection-box'; start: Point; end: Point }
-  | { kind: 'move'; elementId: string; start: Point; original: BoardElement }
+  | { kind: 'move'; elementIds: string[]; start: Point; originals: BoardElement[] }
   | { kind: 'resize'; elementId: string; start: Point; original: BoardElement }
   | {
     kind: 'compass-radius'
@@ -1205,6 +1206,14 @@ const rectsIntersect = (
   a.x + a.width >= b.x &&
   a.y <= b.y + b.height &&
   a.y + a.height >= b.y
+const rectContains = (
+  container: { x: number; y: number; width: number; height: number },
+  item: { x: number; y: number; width: number; height: number },
+) =>
+  item.x >= container.x &&
+  item.y >= container.y &&
+  item.x + item.width <= container.x + container.width &&
+  item.y + item.height <= container.y + container.height
 const isSelectableElement = (element: BoardElement) => element.type !== 'pen'
 const compareElementStack = (a: BoardElement, b: BoardElement) => {
   if (a.type === 'compass' && b.type !== 'compass') return 1
@@ -1257,17 +1266,19 @@ export function WhiteboardPage() {
   const modalConfirmResolverRef = useRef<((value: boolean) => void) | null>(null)
   const toolEventChainRef = useRef<Promise<void>>(Promise.resolve())
   const chatSessionRef = useRef(0)
-  const selectedElementIdRef = useRef<string | null>(null)
+  const selectedElementIdsRef = useRef<string[]>([])
   const pointerWorldRef = useRef<Point | null>(null)
   const pointerScreenRef = useRef<Point | null>(null)
   const editingTextIdRef = useRef<string | null>(null)
-  const copiedElementRef = useRef<BoardElement | null>(null)
+  const copiedElementsRef = useRef<BoardElement[]>([])
 
   const [boards, setBoards] = useState<Board[]>([])
   const [activeBoardId, setActiveBoardId] = useState('')
   const [elements, setElements] = useState<BoardElement[]>([])
   const [, setAssets] = useState<Asset[]>([])
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null)
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([])
+  const selectedElementId = selectedElementIds.length > 0 ? selectedElementIds[0] : null
+  const setSelectedElementId = (id: string | null) => setSelectedElementIds(id ? [id] : [])
   const [tool, setTool] = useState<CanvasToolId>('select')
   const [viewport, setViewport] = useState<Viewport>(boardCenter)
   const [draft, setDraft] = useState<DraftState>(null)
@@ -1577,8 +1588,8 @@ export function WhiteboardPage() {
   }, [elements])
 
   useEffect(() => {
-    selectedElementIdRef.current = selectedElementId
-  }, [selectedElementId])
+    selectedElementIdsRef.current = selectedElementIds
+  }, [selectedElementIds])
 
   useEffect(() => {
     pointerWorldRef.current = pointerWorld
@@ -1618,7 +1629,7 @@ export function WhiteboardPage() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const isTyping = isTypingTarget(event.target) || editingTextIdRef.current != null
+      const isTyping = isTypingTarget(event.target) || editingTextIdRef.current != null || (window.getSelection()?.toString().length ?? 0) > 0
       const key = event.key.toLowerCase()
 
       if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && key === 's') {
@@ -1668,42 +1679,83 @@ export function WhiteboardPage() {
 
       if (isTyping) return
 
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'c') {
-        const selected = selectedElementIdRef.current
-        if (!selected) return
-        const element = elementsRef.current.find((item) => item.id === selected) ?? null
-        if (!element) return
-        copiedElementRef.current = cloneElementDeep(element)
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && key === 'z') {
         event.preventDefault()
-        setStatusMessage(`Copied ${element.type}`)
+        undo()
+        return
+      }
+
+      if (((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && key === 'z') || ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'y')) {
+        event.preventDefault()
+        redo()
+        return
+      }
+
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'x') {
+        const selectedIds = selectedElementIdsRef.current
+        if (selectedIds.length === 0) return
+        const selectedElements = elementsRef.current.filter((item) => selectedIds.includes(item.id))
+        if (selectedElements.length === 0) return
+        copiedElementsRef.current = selectedElements.map((e) => cloneElementDeep(e))
+        event.preventDefault()
+        commitElements(elementsRef.current.filter((item) => !selectedIds.includes(item.id)))
+        setSelectedElementIds([])
+        setStatusMessage(`Cut ${selectedElements.length} elements`)
+        return
+      }
+
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'c') {
+        const selectedIds = selectedElementIdsRef.current
+        if (selectedIds.length === 0) return
+        const selectedElements = elementsRef.current.filter((item) => selectedIds.includes(item.id))
+        if (selectedElements.length === 0) return
+        copiedElementsRef.current = selectedElements.map(e => cloneElementDeep(e))
+        event.preventDefault()
+        setStatusMessage(`Copied ${selectedElements.length} elements`)
         return
       }
 
       if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'v') {
-        const copied = copiedElementRef.current
-        if (!copied) return
+        const copied = copiedElementsRef.current
+        if (copied.length === 0) return
         event.preventDefault()
         const fallbackPoint = {
           x: viewport.x + (canvasRef.current?.clientWidth ?? 0) / Math.max(1, viewport.zoom) / 2,
           y: viewport.y + (canvasRef.current?.clientHeight ?? 0) / Math.max(1, viewport.zoom) / 2,
         }
-        const pasted = duplicateElementAt(copied, pointerWorldRef.current ?? fallbackPoint)
-        commitElements([...elementsRef.current, pasted])
-        setSelectedElementId(pasted.id)
+        const target = pointerWorldRef.current ?? fallbackPoint
+        // Calculate offset from first element
+        const base = copied[0]
+        const dx = target.x - base.x
+        const dy = target.y - base.y
+
+        const now = new Date().toISOString()
+        const pastedElements = copied.map((element) => {
+          const cloned = cloneElementDeep(element)
+          const moved = translateElement(cloned, dx, dy)
+          return {
+            ...moved,
+            id: createLocalId(element.type),
+            zIndex: getNextZIndex(elementsRef.current),
+            createdAt: now,
+            updatedAt: now,
+          } satisfies BoardElement
+        })
+
+        commitElements([...elementsRef.current, ...pastedElements])
+        setSelectedElementIds(pastedElements.map(e => e.id))
         setTool('select')
-        setStatusMessage(`Pasted ${pasted.type}`)
+        setStatusMessage(`Pasted ${pastedElements.length} elements`)
         return
       }
 
       if (event.key === 'Delete') {
-        const selected = selectedElementIdRef.current
-        if (!selected) return
-        const element = elementsRef.current.find((item) => item.id === selected) ?? null
-        if (!element) return
+        const selectedIds = selectedElementIdsRef.current
+        if (selectedIds.length === 0) return
         event.preventDefault()
-        commitElements(elementsRef.current.filter((item) => item.id !== selected))
-        setSelectedElementId(null)
-        setStatusMessage(`Deleted ${element.type}`)
+        commitElements(elementsRef.current.filter((item) => !selectedIds.includes(item.id)))
+        setSelectedElementIds([])
+        setStatusMessage(`Deleted ${selectedIds.length} elements`)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -1798,7 +1850,7 @@ export function WhiteboardPage() {
       }
       const hit = topElementAt(point)
       if (!hit) {
-        setSelectedElementId(null)
+        setSelectedElementIds([])
         const nextDrag: DragState =
           tool === 'drag-select'
             ? { kind: 'selection-box', start: point, end: point }
@@ -1807,7 +1859,15 @@ export function WhiteboardPage() {
         setDrag(nextDrag)
         return
       }
-      setSelectedElementId(hit.id)
+
+      const isShift = event.shiftKey
+      if (isShift) {
+        setSelectedElementIds((prev: string[]) =>
+          prev.includes(hit.id) ? prev.filter(id => id !== hit.id) : [...prev, hit.id]
+        )
+      } else if (!selectedElementIds.includes(hit.id)) {
+        setSelectedElementIds([hit.id])
+      }
       if (hit.type === 'compass') {
         const hitZone = getCompassHitZone(hit, point)
         const { hinge, drawCenter, drawRadius, drawTip, handleAngle } = getCompassGeometry(hit)
@@ -1857,7 +1917,9 @@ export function WhiteboardPage() {
           setDrag(nextDrag)
           return
         }
-        const nextDrag: DragState = { kind: 'move', elementId: hit.id, start: point, original: hit }
+        const movedIds = selectedElementIds.includes(hit.id) ? selectedElementIds : [hit.id]
+        const originals = movedIds.map(id => elementsRef.current.find(e => e.id === id)!).filter(Boolean)
+        const nextDrag: DragState = { kind: 'move', elementIds: movedIds, start: point, originals }
         dragRef.current = nextDrag
         setDrag(nextDrag)
         return
@@ -1886,7 +1948,11 @@ export function WhiteboardPage() {
       const nextDrag: DragState =
         resizeHandleHit && canResize
           ? { kind: 'resize', elementId: hit.id, start: point, original: hit }
-          : { kind: 'move', elementId: hit.id, start: point, original: hit }
+          : (() => {
+            const movedIds = selectedElementIds.includes(hit.id) ? selectedElementIds : [hit.id]
+            const originals = movedIds.map(id => elementsRef.current.find(e => e.id === id)!).filter(Boolean)
+            return { kind: 'move', elementIds: movedIds, start: point, originals }
+          })()
       dragRef.current = nextDrag
       setDrag(nextDrag)
       return
@@ -2139,7 +2205,13 @@ export function WhiteboardPage() {
       const dx = point.x - activeDrag.start.x
       const dy = point.y - activeDrag.start.y
       return setElements((prev) => {
-        const next = prev.map((element) => (element.id === activeDrag.elementId ? translateElement(activeDrag.original, dx, dy) : element))
+        const next = prev.map((element) => {
+          if (activeDrag.elementIds.includes(element.id)) {
+            const original = activeDrag.originals.find(o => o.id === element.id)
+            if (original) return translateElement(original, dx, dy)
+          }
+          return element
+        })
         elementsRef.current = next
         return next
       })
@@ -2323,12 +2395,12 @@ export function WhiteboardPage() {
     } else if (activeDrag?.kind === 'selection-box') {
       const selectionRect = normalizeRect(activeDrag.start, activeDrag.end)
       const isClickSelection = distance(activeDrag.start, activeDrag.end) < 4
-      const nextSelected = isClickSelection
-        ? topElementAt(activeDrag.end)?.id ?? null
-        : sortByZ(elementsRef.current).find((element) =>
-          isSelectableElement(element) && rectsIntersect(selectionRect, getElementSelectionBounds(element)),
-        )?.id ?? null
-      setSelectedElementId(nextSelected)
+      const nextSelectedIds = isClickSelection
+        ? (topElementAt(activeDrag.end)?.id ? [topElementAt(activeDrag.end)!.id] : [])
+        : sortByZ(elementsRef.current)
+          .filter((element) => isSelectableElement(element) && rectContains(selectionRect, getElementSelectionBounds(element)))
+          .map((e) => e.id)
+      setSelectedElementIds(nextSelectedIds)
     } else if (
       activeDrag?.kind === 'move' ||
       activeDrag?.kind === 'compass-radius' ||
@@ -2718,13 +2790,14 @@ export function WhiteboardPage() {
     await toolEventChainRef.current
   }
 
-  const buildConversationHistory = (contextSize: number, nextUserPrompt: string): AgentConversationMessage[] => {
+  const buildConversationHistory = (contextSize: number, nextUserPrompt: string, customMessages?: ChatMessage[]): AgentConversationMessage[] => {
+    const messages = customMessages ?? chatMessages
     const reserveTokens = 24000
     const availableTokens = Math.max(4096, contextSize - reserveTokens - estimateTokenCount(nextUserPrompt))
     let usedTokens = 0
     const selected: AgentConversationMessage[] = []
-    for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
-      const message = chatMessages[index]
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index]
       if (message.role === 'error' || message.role === 'thought') continue
       if (!message.content.trim()) continue
       const estimated = estimateTokenCount(message.content) + 12
@@ -2834,10 +2907,10 @@ export function WhiteboardPage() {
     }
   }
 
-  const runAgent = async () => {
-    if (!activeBoardId || !agentPrompt.trim()) return
+  const runAgent = async (retryPrompt?: string, retryHistory?: ChatMessage[]) => {
+    const prompt = (retryPrompt ?? agentPrompt).trim()
+    if (!activeBoardId || !prompt) return
     const sessionId = chatSessionRef.current
-    const prompt = agentPrompt.trim()
     const targetSettings = buildSelectedAISettings()
     if (!targetSettings) {
       setStatusMessage('Select a valid model/provider pair in settings.')
@@ -2857,6 +2930,7 @@ export function WhiteboardPage() {
     const conversationHistory = buildConversationHistory(
       normalizeContextSize(selectedChatModel?.contextSize ?? ''),
       prompt,
+      retryHistory
     )
 
     setAgentLoading(true)
@@ -2871,7 +2945,9 @@ export function WhiteboardPage() {
         order: nextChatOrder(),
       },
     ])
-    setAgentPrompt('')
+    if (!retryHistory) {
+      setAgentPrompt('')
+    }
     try {
       if (shouldSaveSettings) {
         await saveAISettingsAction(targetSettings)
@@ -3887,7 +3963,7 @@ export function WhiteboardPage() {
               }}
             >
               {domElements.map((element) => {
-                const selected = element.id === selectedElementId
+                const selected = selectedElementIds.includes(element.id)
                 const visuallySelected = selected && element.type !== 'compass'
                 const graphInlineEditorHeight =
                   selected && isSelectionTool && element.type === 'graph'
@@ -4727,6 +4803,40 @@ export function WhiteboardPage() {
                           dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(message.content || ' ') }}
                         />
                       ) : null}
+                      <div className="chat-message-actions">
+                        <button
+                          className="msg-action-btn"
+                          title="Copy text"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(message.content)
+                            setStatusMessage('Copied to clipboard')
+                          }}
+                        >
+                          <Copy size={13} />
+                        </button>
+                        {message.id === (orderedChatMessages.filter(m => m.role === 'assistant' || m.role === 'assistant-thinking').slice(-1)[0]?.id) && (
+                          <button
+                            className="msg-action-btn"
+                            title="Retry"
+                            onClick={() => {
+                              // Find the last user message before this one
+                              const history = orderedChatMessages
+                              const idx = history.findIndex(m => m.id === message.id)
+                              if (idx > 0) {
+                                const lastUserMsg = [...history.slice(0, idx)].reverse().find(m => m.role === 'user')
+                                if (lastUserMsg) {
+                                  // Filter out the user message and everything after it
+                                  const remainingMessages = chatMessages.filter(m => m.order < lastUserMsg.order)
+                                  setChatMessages(remainingMessages)
+                                  void runAgent(lastUserMsg.content, remainingMessages)
+                                }
+                              }
+                            }}
+                          >
+                            <RotateCcw size={13} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

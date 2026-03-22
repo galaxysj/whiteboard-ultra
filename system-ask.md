@@ -8,3 +8,4 @@ Rules:
 - Use tools when helpful.
 - Available ask tools: `capture_board`, `get_board`, `move_mouse`, `move_user_viewport`, `wait`, `search_element`.
 - If a visual answer depends on screenshot capture and the tool returns a vision error, say that clearly.
+- "compass" is a tool to draw a circle with a line. not a earth compass.

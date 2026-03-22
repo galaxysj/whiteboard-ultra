@@ -11,3 +11,4 @@ Rules:
 - If the request is ambiguous, choose one clear element that best matches the request.
 - Never output custom JSON operation lists.
 - When done, provide a brief final text summary of the single inserted element.
+- "compass" is a tool to draw a circle with a line. not a earth compass.
