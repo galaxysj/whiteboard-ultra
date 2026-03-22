@@ -174,10 +174,10 @@ h3 {
 
 .canvas-toolbar {
   position: relative;
-  z-index: 30;
-  height: 42px;
-  padding: 0 10px;
-  border-radius: 12px;
+  z-index: 1;
+  min-height: 50px;
+  padding: 8px;
+  border-radius: 14px;
   border: 1px solid rgba(219, 226, 234, 0.85);
   background: rgba(255, 255, 255, 0.92);
   display: flex;
@@ -191,6 +191,8 @@ h3 {
   margin-left: auto;
   color: var(--muted);
   font-size: 12px;
+  position: relative;
+  z-index: 100;
 }
 
 .canvas-toolbar .toolbar-tooltip {
@@ -335,6 +337,7 @@ h3 {
   border: 1px solid rgba(219, 226, 234, 0.85);
   overflow: hidden;
   position: relative;
+  z-index: 30;
   user-select: none;
   -webkit-user-select: none;
   background:
@@ -420,13 +423,27 @@ h3 {
   background: rgba(47, 116, 150, 0.15);
 }
 
-.tool-popup button[data-tooltip]:hover::after,
-.canvas-toolbar .toolbar-tooltip[data-tooltip]:hover::after {
+.tool-popup button[data-tooltip]:hover::after {
   content: attr(data-tooltip);
   position: absolute;
   z-index: 50;
   left: 50%;
   top: calc(100% + 8px);
+  transform: translateX(-50%);
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #17212b;
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 8px 18px rgba(18, 30, 44, 0.18);
+}
+
+.toolbar-tooltip-overlay {
+  position: fixed;
+  z-index: 120;
   transform: translateX(-50%);
   padding: 5px 8px;
   border-radius: 8px;
@@ -471,8 +488,23 @@ h3 {
   overflow: visible;
 }
 
+.element-ruler,
+.element-protractor {
+  overflow: visible;
+}
+
+.element-file {
+  border-radius: 18px;
+  overflow: hidden;
+}
+
 .element.selected {
   outline: 2px solid var(--orange);
+}
+
+.element-line.selected,
+.element-arrow.selected {
+  outline: none;
 }
 
 .pen-selection {
@@ -532,13 +564,70 @@ h3 {
 }
 
 .file-card {
-  padding: 9px;
+  width: 100%;
+  height: 100%;
+  padding: 14px 16px;
   display: flex;
+  align-items: center;
+  gap: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(56, 80, 93, 0.12);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(242, 247, 251, 0.96)),
+    linear-gradient(180deg, rgba(233, 190, 95, 0.08), rgba(47, 116, 150, 0.04));
+  box-shadow: 0 12px 24px rgba(24, 49, 83, 0.08);
+}
+
+.file-card-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: #204057;
+  background: linear-gradient(135deg, #ffe4a8, #f6c768);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.file-card-body {
+  min-width: 0;
+  display: grid;
   gap: 8px;
 }
 
+.file-card strong {
+  display: block;
+  color: #173041;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .file-card a {
-  color: var(--blue);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(47, 116, 150, 0.12);
+  color: #14537a;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background-color 120ms ease, transform 120ms ease;
+}
+
+.file-card a:hover {
+  background: rgba(47, 116, 150, 0.18);
+  transform: translateY(-1px);
 }
 
 .graph,
@@ -771,8 +860,15 @@ h3 {
 
 .markdown-box-content {
   display: block;
-  overflow: auto;
   line-height: 1.55;
+}
+
+.markdown-box-content.unselected {
+  overflow: hidden;
+}
+
+.markdown-box-content.selected {
+  overflow: auto;
 }
 
 .markdown-box-content p {
@@ -1488,7 +1584,7 @@ h3 {
 .settings-title {
   margin: 0;
   margin-bottom: 2px;
-  font-size: 20px;  /* 원하는 크기로 조절 */
+  font-size: 20px;  
 }
 
 
@@ -1723,6 +1819,18 @@ h3 {
   border: 1px solid rgba(73, 95, 105, 0.28);
   background: #fff;
   padding: 0 10px;
+}
+
+.app-modal-textarea {
+  width: 100%;
+  min-height: 180px;
+  border-radius: 10px;
+  border: 1px solid rgba(73, 95, 105, 0.28);
+  background: #fff;
+  padding: 10px;
+  resize: vertical;
+  font: 500 13px/1.5 'Consolas', 'SFMono-Regular', monospace;
+  white-space: pre-wrap;
 }
 
 .app-modal-actions {

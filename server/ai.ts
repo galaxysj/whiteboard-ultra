@@ -666,7 +666,7 @@ const sanitizeOperationElement = (
         width: Math.max(24, asNumber(element.width, 480)),
         height: Math.max(24, asNumber(element.height, 280)),
         fill:
-          typeof element.fill === 'string' ? element.fill : 'rgba(255,255,255,0.55)',
+          typeof element.fill === 'string' ? element.fill : '#ffffff',
         src:
           typeof (element as { src?: unknown }).src === 'string'
             ? (element as { src: string }).src
@@ -675,6 +675,20 @@ const sanitizeOperationElement = (
           typeof (element as { title?: unknown }).title === 'string'
             ? (element as { title: string }).title
             : 'Embedded content',
+      } as BoardElement
+    case 'html':
+      return {
+        ...base,
+        type: 'html',
+        width: Math.max(24, asNumber(element.width, 480)),
+        height: Math.max(24, asNumber(element.height, 280)),
+        fill:
+          typeof element.fill === 'string' ? element.fill : 'rgba(255,255,255,0.55)',
+        stroke: typeof element.stroke === 'string' ? element.stroke : '#183153',
+        html:
+          typeof (element as { html?: unknown }).html === 'string'
+            ? (element as { html: string }).html
+            : '<div>Custom HTML</div>',
       } as BoardElement
     case 'image':
     case 'video':
@@ -867,6 +881,7 @@ type BuildToolName =
   | 'draw_arrow'
   | 'draw_square'
   | 'draw_circle'
+  | 'show_calculator'
   | 'embed_link'
   | 'write_text'
   | 'write_md'
@@ -933,6 +948,7 @@ const readBuildToolName = (value: unknown): BuildToolName | null => {
     value === 'draw_arrow' ||
     value === 'draw_square' ||
     value === 'draw_circle' ||
+    value === 'show_calculator' ||
     value === 'embed_link' ||
     value === 'write_text' ||
     value === 'write_md' ||
@@ -968,6 +984,31 @@ const readAskToolName = (value: unknown): AskToolName | null => {
 const pushRuntimeToolEvent = (runtime: RuntimeBase, label: string, detail?: string, action?: AgentToolAction) => {
   runtime.toolEvents.push(createToolEvent(label, detail, action))
 }
+
+const CALCULATOR_WIDGET_MARKER = 'data-widget="embedded-calculator"'
+const CALCULATOR_EMBED_HTML = `<div ${CALCULATOR_WIDGET_MARKER} style="height:100%;display:grid;grid-template-rows:auto 1fr;gap:10px;padding:12px;border-radius:14px;background:linear-gradient(155deg,#f7fbff,#eef4fa);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;">
+  <input data-role="display" value="0" readonly style="width:100%;height:46px;border:0;border-radius:10px;padding:0 12px;text-align:right;font-size:20px;font-weight:700;color:#173041;background:#ffffff;box-shadow:inset 0 0 0 1px rgba(23,48,65,.12);" />
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;">
+    <button type="button" data-calc="clear" style="border:0;border-radius:10px;background:#ffe6be;color:#173041;font-weight:700;">C</button>
+    <button type="button" data-calc="del" style="border:0;border-radius:10px;background:#ffe6be;color:#173041;font-weight:700;">DEL</button>
+    <button type="button" data-calc="dot" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">.</button>
+    <button type="button" data-calc="op:/" style="border:0;border-radius:10px;background:#dcefff;color:#14537a;font-weight:700;">÷</button>
+    <button type="button" data-calc="digit:7" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">7</button>
+    <button type="button" data-calc="digit:8" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">8</button>
+    <button type="button" data-calc="digit:9" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">9</button>
+    <button type="button" data-calc="op:*" style="border:0;border-radius:10px;background:#dcefff;color:#14537a;font-weight:700;">×</button>
+    <button type="button" data-calc="digit:4" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">4</button>
+    <button type="button" data-calc="digit:5" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">5</button>
+    <button type="button" data-calc="digit:6" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">6</button>
+    <button type="button" data-calc="op:-" style="border:0;border-radius:10px;background:#dcefff;color:#14537a;font-weight:700;">-</button>
+    <button type="button" data-calc="digit:1" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">1</button>
+    <button type="button" data-calc="digit:2" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">2</button>
+    <button type="button" data-calc="digit:3" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">3</button>
+    <button type="button" data-calc="op:+" style="border:0;border-radius:10px;background:#dcefff;color:#14537a;font-weight:700;">+</button>
+    <button type="button" data-calc="digit:0" style="grid-column:span 2;border:0;border-radius:10px;background:#ffffff;color:#173041;">0</button>
+    <button type="button" data-calc="eval" style="grid-column:span 2;border:0;border-radius:10px;background:#2f7496;color:#fff;font-weight:700;">=</button>
+  </div>
+</div>`
 
 const supportsVision = (settings: AIProviderSettings) => settings.providerType !== 'compatible'
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -1118,6 +1159,23 @@ const executeBuildTool = async (
       stroke: typeof args.color === 'string' ? args.color : '#183153',
     } as Partial<BoardElement> & { type: BoardElement['type'] })
     pushRuntimeToolEvent(runtime, toolName === 'draw_square' ? 'Drew square' : 'Drew circle')
+    return { ok: true, id: created?.id ?? null }
+  }
+
+  if (toolName === 'show_calculator') {
+    const targetx = absoluteX(args.targetx)
+    const targety = absoluteY(args.targety)
+    const created = createBuildElementOperation(runtime, {
+      type: 'html',
+      x: targetx,
+      y: targety,
+      width: 280,
+      height: 350,
+      html: CALCULATOR_EMBED_HTML,
+      fill: 'transparent',
+      stroke: 'transparent',
+    } as Partial<BoardElement> & { type: BoardElement['type'] })
+    pushRuntimeToolEvent(runtime, 'Inserted calculator')
     return { ok: true, id: created?.id ?? null }
   }
 
@@ -1468,6 +1526,20 @@ const buildToolsForResponses = [
         color: { type: 'string' },
       },
       required: ['startx', 'starty', 'width', 'height'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'show_calculator',
+    description: 'Insert an HTML calculator at targetx and targety.',
+    parameters: {
+      type: 'object',
+      properties: {
+        targetx: { type: 'number' },
+        targety: { type: 'number' },
+      },
+      required: ['targetx', 'targety'],
       additionalProperties: false,
     },
   },

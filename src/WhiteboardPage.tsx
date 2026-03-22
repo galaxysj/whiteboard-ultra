@@ -6,6 +6,7 @@ import PlotlyFactoryModule from 'react-plotly.js/factory'
 import PlotlyModule from 'plotly.js-dist-min'
 import type { Data as PlotlyData, Layout as PlotlyLayout } from 'plotly.js'
 import agentCursorSvg from './assets/cursor.svg'
+import { DraftingCompass } from "lucide-react";
 import {
   ALargeSmall,
   ArrowRight,
@@ -90,6 +91,11 @@ type AgentCursorState = {
   x: number
   y: number
 }
+type ToolbarTooltipState = {
+  label: string
+  left: number
+  top: number
+}
 type InlineAgentComposerState = {
   open: boolean
   prompt: string
@@ -127,7 +133,7 @@ type DropdownOption = {
   value: string
   label: string
 }
-type CanvasToolId = ToolId | 'eraser-stroke' | 'dot'
+type CanvasToolId = ToolId | 'eraser-stroke' | 'dot' | 'calculator'
 type DraftState =
   | { type: 'shape'; tool: 'line' | 'arrow' | 'rectangle' | 'ellipse'; start: Point; end: Point }
   | { type: 'pen'; rawPoints: Point[]; points: Point[] }
@@ -184,6 +190,7 @@ type ModalState =
       placeholder?: string
       initialValue: string
       confirmLabel?: string
+      multiline?: boolean
     }
   | {
       kind: 'confirm'
@@ -233,7 +240,8 @@ const TOOL_DEFS: Array<{ id: CanvasToolId; label: string; category: ToolCategory
   { id: 'markdown', label: 'Markdown', category: 'text', icon: ALargeSmall },
   { id: 'code', label: 'Normal Code', category: 'text', icon: Code2 },
   { id: 'monaco', label: 'Monaco Editor', category: 'text', icon: SquareCode },
-  { id: 'compass', label: 'Compass', category: 'math', icon: Compass },
+  { id: 'compass', label: 'Drawing Compass', category: 'math', icon: DraftingCompass },
+  { id: 'calculator', label: 'Calculator', category: 'math', icon: Calculator },
   { id: 'graph', label: 'Graph', category: 'math', icon: Grid3x3 },
   { id: 'latex', label: 'LaTeX', category: 'math', icon: Scan },
   { id: 'ruler', label: 'Ruler', category: 'math', icon: Ruler },
@@ -261,6 +269,30 @@ const AI_MODEL_LIST_STORAGE_KEY = 'whiteboard.ai.model-list'
 
 const defaultProviderPresets: ProviderPreset[] = []
 const defaultModelPresets: ModelPreset[] = []
+const CALCULATOR_WIDGET_MARKER = 'data-widget="embedded-calculator"'
+const CALCULATOR_EMBED_HTML = `<div ${CALCULATOR_WIDGET_MARKER} style="height:100%;display:grid;grid-template-rows:auto 1fr;gap:10px;padding:12px;border-radius:14px;background:linear-gradient(155deg,#f7fbff,#eef4fa);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;">
+  <input data-role="display" value="0" readonly style="width:100%;height:46px;border:0;border-radius:10px;padding:0 12px;text-align:right;font-size:20px;font-weight:700;color:#173041;background:#ffffff;box-shadow:inset 0 0 0 1px rgba(23,48,65,.12);" />
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;">
+    <button type="button" data-calc="clear" style="border:0;border-radius:10px;background:#ffe6be;color:#173041;font-weight:700;">C</button>
+    <button type="button" data-calc="del" style="border:0;border-radius:10px;background:#ffe6be;color:#173041;font-weight:700;">DEL</button>
+    <button type="button" data-calc="dot" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">.</button>
+    <button type="button" data-calc="op:/" style="border:0;border-radius:10px;background:#dcefff;color:#14537a;font-weight:700;">/</button>
+    <button type="button" data-calc="digit:7" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">7</button>
+    <button type="button" data-calc="digit:8" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">8</button>
+    <button type="button" data-calc="digit:9" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">9</button>
+    <button type="button" data-calc="op:*" style="border:0;border-radius:10px;background:#dcefff;color:#14537a;font-weight:700;">*</button>
+    <button type="button" data-calc="digit:4" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">4</button>
+    <button type="button" data-calc="digit:5" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">5</button>
+    <button type="button" data-calc="digit:6" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">6</button>
+    <button type="button" data-calc="op:-" style="border:0;border-radius:10px;background:#dcefff;color:#14537a;font-weight:700;">-</button>
+    <button type="button" data-calc="digit:1" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">1</button>
+    <button type="button" data-calc="digit:2" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">2</button>
+    <button type="button" data-calc="digit:3" style="border:0;border-radius:10px;background:#ffffff;color:#173041;">3</button>
+    <button type="button" data-calc="op:+" style="border:0;border-radius:10px;background:#dcefff;color:#14537a;font-weight:700;">+</button>
+    <button type="button" data-calc="digit:0" style="grid-column:span 2;border:0;border-radius:10px;background:#ffffff;color:#173041;">0</button>
+    <button type="button" data-calc="eval" style="grid-column:span 2;border:0;border-radius:10px;background:#2f7496;color:#fff;font-weight:700;">=</button>
+  </div>
+</div>`
 
 const createLocalId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
 const cloneElementDeep = <T,>(value: T): T =>
@@ -399,6 +431,8 @@ const COMPASS_WIDTH = 400
 const COMPASS_SOURCE_WIDTH = 300
 const COMPASS_SOURCE_HEIGHT = 420
 const COMPASS_SCALE = COMPASS_WIDTH / COMPASS_SOURCE_WIDTH
+const ASSET_MAX_INITIAL_WIDTH = 320
+const ASSET_MAX_INITIAL_HEIGHT = 220
 const PEN_MIN_POINT_DISTANCE = 0.9
 const PEN_LOW_SPEED_SMOOTH = 0.12
 const PEN_HIGH_SPEED_SMOOTH = 0.42
@@ -414,6 +448,52 @@ const clampViewportPosition = (x: number, y: number, zoom: number, viewWidth: nu
   }
 }
 const scaleCompassPoint = (x: number, y: number) => ({ x: x * COMPASS_SCALE, y: y * COMPASS_SCALE })
+const loadImageDimensions = (src: string) =>
+  new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+    image.onerror = () => reject(new Error('Failed to load image dimensions.'))
+    image.src = src
+  })
+const loadVideoDimensions = (src: string) =>
+  new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.onloadedmetadata = () => resolve({ width: video.videoWidth, height: video.videoHeight })
+    video.onerror = () => reject(new Error('Failed to load video dimensions.'))
+    video.src = src
+  })
+const getAssetPlacementSize = async (asset: Asset) => {
+  if (asset.kind === 'file') return { width: 280, height: 96 }
+  const dimensions =
+    asset.kind === 'image'
+      ? await loadImageDimensions(asset.sourceUrl)
+      : await loadVideoDimensions(asset.sourceUrl)
+  const safeWidth = Math.max(1, dimensions.width)
+  const safeHeight = Math.max(1, dimensions.height)
+  const scale = Math.min(1, ASSET_MAX_INITIAL_WIDTH / safeWidth, ASSET_MAX_INITIAL_HEIGHT / safeHeight)
+  return {
+    width: Math.max(96, Math.round(safeWidth * scale)),
+    height: Math.max(72, Math.round(safeHeight * scale)),
+  }
+}
+const getAssetInputAccept = (kind: Asset['kind'] | null) => {
+  if (kind === 'image') return '.png,.jpg,.jpeg,.webp,.bmp,.gif,image/png,image/jpeg,image/webp,image/bmp,image/gif'
+  if (kind === 'video') return '.mp4,.webm,.mov,.m4v,.avi,.mkv,.ogv,.mpeg,.mpg,video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska,video/ogg,video/mpeg'
+  return ''
+}
+const isAcceptedAssetFile = (kind: Asset['kind'], file: File) => {
+  const mimeType = file.type.toLowerCase()
+  const extension = file.name.toLowerCase().split('.').pop() ?? ''
+  if (kind === 'image') {
+    if (extension === 'svg' || mimeType === 'image/svg+xml') return false
+    return mimeType.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'].includes(extension)
+  }
+  if (kind === 'video') {
+    return mimeType.startsWith('video/') || ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'ogv', 'mpeg', 'mpg'].includes(extension)
+  }
+  return true
+}
 const COMPASS_HINGE_SOURCE = { x: 150, y: 80 }
 const COMPASS_HANDLE_CENTER_SOURCE = { x: 150.514076, y: 83.084455 }
 const COMPASS_LEFT_START_SOURCE = { x: 138, y: 96 }
@@ -893,6 +973,8 @@ function rotateAround(point: Point, center: Point, angle: number) {
     y: center.y + dx * sin + dy * cos,
   }
 }
+const unrotatePoint = (point: Point, center: Point, angle: number) =>
+  rotateAround(point, center, -angle)
 const hitsElementWithCircle = (point: Point, element: BoardElement, radius: number) => {
   const closestX = Math.max(element.x, Math.min(point.x, element.x + element.width))
   const closestY = Math.max(element.y, Math.min(point.y, element.y + element.height))
@@ -979,6 +1061,23 @@ const getCompassHitZone = (element: Extract<BoardElement, { type: 'compass' }>, 
   return null
 }
 const getRotateHandlePoint = (element: Exclude<BoardElement, { type: 'pen' | 'compass' }>) => {
+  if (element.type === 'line' || element.type === 'arrow') {
+    const start = element.linePoints?.[0] ?? { x: 0, y: element.height }
+    const end = element.linePoints?.[1] ?? { x: element.width, y: 0 }
+    const mid = {
+      x: element.x + (start.x + end.x) / 2,
+      y: element.y + (start.y + end.y) / 2,
+    }
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    const len = Math.max(1, Math.hypot(dx, dy))
+    const nx = -dy / len
+    const ny = dx / len
+    return {
+      x: mid.x + nx * 26,
+      y: mid.y + ny * 26,
+    }
+  }
   const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 }
   const handle = { x: element.x + element.width / 2, y: element.y - 16 }
   if (!element.rotation) return handle
@@ -991,6 +1090,34 @@ const isEditableTextElement = (element: BoardElement): element is Extract<BoardE
 const elementBoundsHit = (element: BoardElement, point: Point) => {
   if (element.type === 'compass') {
     return getCompassHitZone(element, point) !== null
+  }
+  if (element.type === 'line' || element.type === 'arrow') {
+    const start = element.linePoints?.[0] ?? { x: 0, y: element.height }
+    const end = element.linePoints?.[1] ?? { x: element.width, y: 0 }
+    const worldStart = { x: element.x + start.x, y: element.y + start.y }
+    const worldEnd = { x: element.x + end.x, y: element.y + end.y }
+    const center = { x: (worldStart.x + worldEnd.x) / 2, y: (worldStart.y + worldEnd.y) / 2 }
+    const angle = Math.atan2(worldEnd.y - worldStart.y, worldEnd.x - worldStart.x)
+    const localPoint = unrotatePoint(point, center, angle)
+    const length = Math.max(1, distance(worldStart, worldEnd))
+    const halfLength = length / 2
+    const padding = Math.max(14, element.strokeWidth * 5)
+    return (
+      localPoint.x >= center.x - halfLength - padding &&
+      localPoint.x <= center.x + halfLength + padding &&
+      localPoint.y >= center.y - padding &&
+      localPoint.y <= center.y + padding
+    )
+  }
+  if (element.rotation) {
+    const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 }
+    const localPoint = unrotatePoint(point, center, degreesToRadians(element.rotation))
+    return (
+      localPoint.x >= element.x &&
+      localPoint.x <= element.x + element.width &&
+      localPoint.y >= element.y &&
+      localPoint.y <= element.y + element.height
+    )
   }
   return (
     point.x >= element.x &&
@@ -1018,13 +1145,26 @@ const isTypingTarget = (target: EventTarget | null) => {
     element.isContentEditable
   )
 }
+const isCalculatorHTMLElement = (element: BoardElement) =>
+  element.type === 'html' && element.html.includes(CALCULATOR_WIDGET_MARKER)
+const encodeHtmlAttribute = (value: string) =>
+  value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+const decodeHtmlAttribute = (value: string) =>
+  value.replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+const readCalculatorDisplayValue = (html: string) => {
+  const match = html.match(/data-role="display"\s+value="([^"]*)"/)
+  return match ? decodeHtmlAttribute(match[1]) : '0'
+}
+const patchCalculatorDisplayValue = (html: string, value: string) => {
+  const safeValue = encodeHtmlAttribute(value)
+  return html.replace(/(data-role="display"\s+value=")([^"]*)(")/, `$1${safeValue}$3`)
+}
 const getRenderZIndex = (element: BoardElement, maxZIndex: number) =>
   element.type === 'compass' ? maxZIndex + 1000 + element.zIndex : element.zIndex
 
 export function WhiteboardPage() {
   const canvasRef = useRef<HTMLDivElement>(null)
   const penCanvasRef = useRef<HTMLCanvasElement>(null)
-  const assetInputRef = useRef<HTMLInputElement>(null)
   const editingTextRef = useRef<HTMLTextAreaElement | null>(null)
   const inlineAgentInputRef = useRef<HTMLTextAreaElement | null>(null)
   const chatWindowRef = useRef<HTMLDivElement | null>(null)
@@ -1058,7 +1198,7 @@ export function WhiteboardPage() {
   const [openToolCategory, setOpenToolCategory] = useState<ToolCategory | null>(null)
   const [aiOpen, setAiOpen] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>('ai')
+  const [, setSettingsSection] = useState<SettingsSection>('ai')
   const [agentMode, setAgentMode] = useState<AgentMode>('chat')
   const [agentPrompt, setAgentPrompt] = useState('')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -1075,6 +1215,7 @@ export function WhiteboardPage() {
   const [selectedChatModelId, setSelectedChatModelId] = useState(defaultModelPresets[0]?.id ?? '')
   const [pendingAssetKind, setPendingAssetKind] = useState<Asset['kind'] | null>(null)
   const [pendingAsset, setPendingAsset] = useState<Asset | null>(null)
+  const [pendingAssetInsertPoint, setPendingAssetInsertPoint] = useState<Point | null>(null)
   const [statusMessage, setStatusMessage] = useState('Loading workspace...')
   const [modal, setModal] = useState<ModalState>(null)
   const [modalInput, setModalInput] = useState('')
@@ -1092,6 +1233,7 @@ export function WhiteboardPage() {
   const [graphExpressionDrafts, setGraphExpressionDrafts] = useState<string[]>([])
   const [agentCursor, setAgentCursor] = useState<AgentCursorState>({ visible: false, x: 0, y: 0 })
   const [inlineAgent, setInlineAgent] = useState<InlineAgentComposerState | null>(null)
+  const [toolbarTooltip, setToolbarTooltip] = useState<ToolbarTooltipState | null>(null)
   const chatMessageOrderRef = useRef(0)
 
   const activeBoard = useMemo(
@@ -1111,6 +1253,17 @@ export function WhiteboardPage() {
     () => [...chatMessages].sort((a, b) => a.order - b.order),
     [chatMessages],
   )
+  const showToolbarTooltip = (element: HTMLElement, label: string) => {
+    const rect = element.getBoundingClientRect()
+    setToolbarTooltip({
+      label,
+      left: rect.left + rect.width / 2,
+      top: rect.bottom + 8,
+    })
+  }
+  const hideToolbarTooltip = () => {
+    setToolbarTooltip(null)
+  }
   const commitElements = (nextElements: BoardElement[], pushHistory = true) => {
     const previousElements = elementsRef.current
     elementsRef.current = nextElements
@@ -1119,6 +1272,71 @@ export function WhiteboardPage() {
       setHistory((prev) => [...prev.slice(-60), previousElements])
       setFuture([])
     }
+  }
+  const insertAssetAtPoint = async (point: Point, asset: Asset, nextToolOnComplete: CanvasToolId = 'select') => {
+    const baseElement = createPlacedElement(asset.kind, point, getNextZIndex(elementsRef.current), { asset })
+    let nextElement = baseElement
+    if ((asset.kind === 'image' || asset.kind === 'video') && (baseElement.type === 'image' || baseElement.type === 'video')) {
+      try {
+        const { width, height } = await getAssetPlacementSize(asset)
+        nextElement = {
+          ...baseElement,
+          width,
+          height,
+          updatedAt: new Date().toISOString(),
+        }
+      } catch {
+        nextElement = baseElement
+      }
+    }
+    commitElements([...elementsRef.current, nextElement])
+    setSelectedElementId(nextElement.id)
+    setPendingAsset(null)
+    setPendingAssetInsertPoint(null)
+    setTool(nextToolOnComplete)
+    return nextElement
+  }
+  const updateCalculatorElement = (elementId: string, currentHtml: string, nextValue: string) => {
+    const nextHtml = patchCalculatorDisplayValue(currentHtml, nextValue)
+    if (nextHtml === currentHtml) return
+    setElements((prev) => {
+      const next = prev.map((item) =>
+        item.id === elementId && item.type === 'html'
+          ? { ...item, html: nextHtml, updatedAt: new Date().toISOString() }
+          : item,
+      )
+      elementsRef.current = next
+      return next
+    })
+  }
+  const resolveCalculatorAction = (current: string, action: string) => {
+    if (action === 'clear') return '0'
+    if (action === 'del') return current.slice(0, -1) || '0'
+    if (action === 'dot') {
+      const chunks = current.split(/[+\-*/]/)
+      const tail = chunks[chunks.length - 1] ?? ''
+      return tail.includes('.') ? current : `${current}.`
+    }
+    if (action === 'eval') {
+      const sanitized = current.replace(/\s+/g, '')
+      if (!/^[0-9+\-*/.]+$/.test(sanitized)) return 'Error'
+      try {
+        const value = Function(`"use strict"; return (${sanitized})`)()
+        return Number.isFinite(value) ? String(value) : 'Error'
+      } catch {
+        return 'Error'
+      }
+    }
+    if (action.startsWith('digit:')) {
+      const digit = action.slice(6)
+      return current === '0' ? digit : `${current}${digit}`
+    }
+    if (action.startsWith('op:')) {
+      const op = action.slice(3)
+      if (!/[+\-*/]/.test(op)) return current
+      return /[+\-*/]$/.test(current) ? `${current.slice(0, -1)}${op}` : `${current}${op}`
+    }
+    return current
   }
 
   const duplicateElementAt = (element: BoardElement, target: Point) => {
@@ -1557,7 +1775,7 @@ export function WhiteboardPage() {
         return
       }
       const resizeHandleHit = Math.abs(point.x - (hit.x + hit.width)) < 18 && Math.abs(point.y - (hit.y + hit.height)) < 18
-      const canResize = hit.type !== 'ruler'
+      const canResize = hit.type !== 'ruler' && !isCalculatorHTMLElement(hit)
       const rotateHandleHit =
         hit.type !== 'pen' &&
         distance(point, getRotateHandlePoint(hit)) <= 14
@@ -1693,6 +1911,7 @@ export function WhiteboardPage() {
           placeholder: 'enter a Snippet of a HTML...',
           initialValue: '<div>Hello World</div>',
           confirmLabel: 'Insert',
+          multiline: true,
         })
         if (!html) return
         const element = createPlacedElement('html', point, getNextZIndex(elements), {
@@ -1700,6 +1919,25 @@ export function WhiteboardPage() {
         })
         commitElements([...elements, element]); setSelectedElementId(element.id)
       })()
+      return
+    }
+    if (tool === 'calculator') {
+      const base = createPlacedElement('html', point, getNextZIndex(elements), {
+        html: CALCULATOR_EMBED_HTML,
+      })
+      if (base.type !== 'html') return
+      const element = {
+        ...base,
+        html: CALCULATOR_EMBED_HTML,
+        width: 280,
+        height: 350,
+        fill: 'transparent',
+        stroke: 'transparent',
+        updatedAt: new Date().toISOString(),
+      }
+      commitElements([...elements, element])
+      setSelectedElementId(element.id)
+      setTool('select')
       return
     }
     if (tool === 'latex') {
@@ -1727,9 +1965,15 @@ export function WhiteboardPage() {
       return
     }
     if (tool === 'image' || tool === 'video' || tool === 'file') {
-      if (!pendingAsset || pendingAsset.kind !== tool) return setStatusMessage(`Upload a ${tool} asset first.`)
-      const element = createPlacedElement(tool, point, getNextZIndex(elements), { asset: pendingAsset })
-      commitElements([...elements, element]); setSelectedElementId(element.id); setPendingAsset(null); return
+      if (pendingAsset && pendingAsset.kind === tool) {
+        void insertAssetAtPoint(point, pendingAsset)
+        return
+      }
+      setPendingAsset(null)
+      setPendingAssetInsertPoint(point)
+      openAssetPicker(tool)
+      setStatusMessage(`Choose a ${tool} file to insert at the selected position.`)
+      return
     }
     const placed = createPlacedElement(tool, point, getNextZIndex(elements))
     commitElements([...elements, placed]); setSelectedElementId(placed.id)
@@ -2152,7 +2396,23 @@ export function WhiteboardPage() {
       return
     }
     setPendingAssetKind(kind)
-    assetInputRef.current?.click()
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = getAssetInputAccept(kind)
+    input.style.position = 'fixed'
+    input.style.left = '-9999px'
+    input.style.top = '-9999px'
+    document.body.appendChild(input)
+    input.addEventListener(
+      'change',
+      () => {
+        const file = input.files?.[0] ?? null
+        void handleAssetFile(file)
+        input.remove()
+      },
+      { once: true },
+    )
+    input.click()
   }
 
   const handleToolSelect = (nextTool: CanvasToolId) => {
@@ -2160,7 +2420,8 @@ export function WhiteboardPage() {
     if (nextTool === 'image' || nextTool === 'video' || nextTool === 'file') {
       setTool(nextTool)
       setPendingAsset(null)
-      openAssetPicker(nextTool)
+      setPendingAssetInsertPoint(null)
+      setStatusMessage(`Click the canvas where you want to insert the ${nextTool}.`)
       return
     }
     setTool(nextTool)
@@ -2169,19 +2430,36 @@ export function WhiteboardPage() {
     setOpenToolCategory((prev) => (prev === category ? null : category))
   }
 
-  const onAssetFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
+  const handleAssetFile = async (file: File | null) => {
     if (!file || !activeBoardId || !pendingAssetKind) return
+    if (!isAcceptedAssetFile(pendingAssetKind, file)) {
+      const label =
+        pendingAssetKind === 'image'
+          ? 'Images only. SVG is not allowed.'
+          : pendingAssetKind === 'video'
+            ? 'Videos only.'
+            : 'This file type is not allowed.'
+      setStatusMessage(label)
+      setPendingAssetKind(null)
+      setPendingAssetInsertPoint(null)
+      return
+    }
     try {
       const asset = await api.uploadAsset(activeBoardId, pendingAssetKind, file)
       setAssets((prev) => [asset, ...prev])
-      setPendingAsset(asset)
-      setTool(pendingAssetKind)
-      setStatusMessage(`Uploaded ${asset.name}. Click canvas to place it.`)
+      if (pendingAssetInsertPoint && asset.kind === pendingAssetKind) {
+        await insertAssetAtPoint(pendingAssetInsertPoint, asset)
+        setStatusMessage(`Inserted ${asset.name}.`)
+      } else {
+        setPendingAsset(asset)
+        setTool(pendingAssetKind)
+        setStatusMessage(`Uploaded ${asset.name}. Click canvas to place it.`)
+      }
     } catch (error) {
       setStatusMessage(error instanceof Error ? `Upload failed: ${error.message}` : 'Upload failed')
+      setPendingAssetInsertPoint(null)
     }
-    event.currentTarget.value = ''
+    setPendingAssetKind(null)
   }
 
   const buildSelectedAISettings = () => {
@@ -2970,36 +3248,73 @@ export function WhiteboardPage() {
       <div className={`workspace ${aiOpen ? 'ai-open' : 'ai-closed'}`}>
         <main className="canvas-wrap">
           <div className="canvas-toolbar">
-            <div className="toolbar-tooltip" data-tooltip="Undo">
+            <div
+              className="toolbar-tooltip"
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Undo')}
+              onMouseLeave={hideToolbarTooltip}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Undo')}
+              onBlur={hideToolbarTooltip}
+            >
               <button onClick={undo} disabled={history.length === 0}>
                 <Undo size={14} />
               </button>
             </div>
-            <div className="toolbar-tooltip" data-tooltip="Redo">
+            <div
+              className="toolbar-tooltip"
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Redo')}
+              onMouseLeave={hideToolbarTooltip}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Redo')}
+              onBlur={hideToolbarTooltip}
+            >
               <button onClick={redo} disabled={future.length === 0}>
                 <Redo size={14} />
               </button>
             </div>
-            <div className="toolbar-tooltip" data-tooltip="Clear All">
+            <div
+              className="toolbar-tooltip"
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Clear All')}
+              onMouseLeave={hideToolbarTooltip}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Clear All')}
+              onBlur={hideToolbarTooltip}
+            >
               <button onClick={() => void clearAllElements()} disabled={elements.length === 0}>
                 <CircleX size={14} /> 
               </button>
             </div>
-            <div className="toolbar-tooltip" data-tooltip="Zoom In">
+            <div
+              className="toolbar-tooltip"
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Zoom In')}
+              onMouseLeave={hideToolbarTooltip}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Zoom In')}
+              onBlur={hideToolbarTooltip}
+            >
               <button onClick={() => zoomBy(1.1)}>
                 <ZoomIn size={14} />
               </button>
             </div>
-            <div className="toolbar-tooltip" data-tooltip="Zoom Out">
-              <button onClick={() => zoomBy(0.9)}>
-                <ZoomOut size={14} />
-              </button>
-            </div>
-            <div className="toolbar-tooltip" data-tooltip="Center View">
+            <div
+              className="toolbar-tooltip"
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Center View')}
+              onMouseLeave={hideToolbarTooltip}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Center View')}
+              onBlur={hideToolbarTooltip}
+            >
               <button onClick={resetView}>
                 <SquarePlus size={14} />
               </button>
             </div>
+            <div
+              className="toolbar-tooltip"
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Zoom Out')}
+              onMouseLeave={hideToolbarTooltip}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Zoom Out')}
+              onBlur={hideToolbarTooltip}
+            >
+              <button onClick={() => zoomBy(0.9)}>
+                <ZoomOut size={14} />
+              </button>
+            </div>
+
             {tool === 'code' || tool === 'monaco' || selectedCodeElement || selectedMonacoElement ? (
               <label className="toolbar-select" title="Editor language">
                 <SquareCode size={13} />
@@ -3244,13 +3559,16 @@ export function WhiteboardPage() {
                 </label>
               </>
             ) : null}
-
-            <span className="canvas-toolbar-meta">
-              Canvas {sizeFormatter.format(CANVAS_WIDTH)} x {sizeFormatter.format(CANVAS_HEIGHT)}
-            </span>
+           
           </div>
-          <input ref={assetInputRef} type="file" hidden onChange={onAssetFileChange} />
-
+          {toolbarTooltip ? (
+            <div
+              className="toolbar-tooltip-overlay"
+              style={{ left: toolbarTooltip.left, top: toolbarTooltip.top }}
+            >
+              {toolbarTooltip.label}
+            </div>
+          ) : null}
           <div
             className="canvas-root"
             style={{ ...gridStyle, cursor: canvasCursor }}
@@ -3416,7 +3734,8 @@ export function WhiteboardPage() {
                 const interactiveInSelectMode =
                   tool === 'select' &&
                   !drag &&
-                  ((selected &&
+                  ((isCalculatorHTMLElement(element) ||
+                    (selected &&
                     (element.type === 'iframe' ||
                       element.type === 'html' ||
                       element.type === 'video' ||
@@ -3425,7 +3744,7 @@ export function WhiteboardPage() {
                       element.type === 'monaco' ||
                       element.type === 'text' ||
                       element.type === 'markdown' ||
-                      element.type === 'graph')) ||
+                      element.type === 'graph'))) ||
                     editingTextId === element.id)
                 return (
                   <div
@@ -3457,7 +3776,12 @@ export function WhiteboardPage() {
                           ? 'visible'
                           : undefined,
                       background:
-                        element.type === 'rectangle' || element.type === 'ellipse' || element.type === 'latex' || element.type === 'pen'
+                        element.type === 'rectangle' ||
+                        element.type === 'ellipse' ||
+                        element.type === 'latex' ||
+                        element.type === 'pen' ||
+                        element.type === 'file' ||
+                        isCalculatorHTMLElement(element)
                           ? 'transparent'
                           : element.fill,
                       transform: element.type === 'pen' ? undefined : `rotate(${element.rotation}deg)`,
@@ -3485,15 +3809,28 @@ export function WhiteboardPage() {
                           const start = element.linePoints?.[0] ?? { x: 0, y: element.height }
                           const end = element.linePoints?.[1] ?? { x: element.width, y: 0 }
                           return (
-                            <line
-                              x1={start.x}
-                              y1={start.y}
-                              x2={end.x}
-                              y2={end.y}
-                              stroke={element.stroke}
-                              strokeWidth={element.strokeWidth}
-                              strokeLinecap="round"
-                            />
+                            <>
+                              {visuallySelected ? (
+                                <line
+                                  x1={start.x}
+                                  y1={start.y}
+                                  x2={end.x}
+                                  y2={end.y}
+                                  stroke="rgba(246, 167, 30, 0.7)"
+                                  strokeWidth={element.strokeWidth + 6}
+                                  strokeLinecap="round"
+                                />
+                              ) : null}
+                              <line
+                                x1={start.x}
+                                y1={start.y}
+                                x2={end.x}
+                                y2={end.y}
+                                stroke={element.stroke}
+                                strokeWidth={element.strokeWidth}
+                                strokeLinecap="round"
+                              />
+                            </>
                           )
                         })()}
                       </svg>
@@ -3522,6 +3859,20 @@ export function WhiteboardPage() {
                           const ry = by - ux * wing
                           return (
                             <>
+                              {visuallySelected ? (
+                                <>
+                                  <line
+                                    x1={start.x}
+                                    y1={start.y}
+                                    x2={shaftEnd.x}
+                                    y2={shaftEnd.y}
+                                    stroke="rgba(246, 167, 30, 0.7)"
+                                    strokeWidth={element.strokeWidth + 6}
+                                    strokeLinecap="round"
+                                  />
+                                  <polygon points={`${end.x},${end.y} ${lx},${ly} ${rx},${ry}`} fill="rgba(246, 167, 30, 0.7)" />
+                                </>
+                              ) : null}
                               <line
                                 x1={start.x}
                                 y1={start.y}
@@ -3541,12 +3892,109 @@ export function WhiteboardPage() {
                     {element.type === 'ellipse' ? renderEllipseSvg(element) : null}
                     {element.type === 'iframe' ? <iframe src={element.src} title={element.title} loading="lazy" /> : null}
                     {element.type === 'html' ? (
-                      <div
-                        className="html-block"
-                        dangerouslySetInnerHTML={{ __html: element.html }}
-                        onPointerDown={(event) => selected && event.stopPropagation()}
-                        style={{ width: '100%', height: '100%', overflow: 'auto', backgroundColor: 'white' }}
-                      />
+                      isCalculatorHTMLElement(element) ? (
+                        (() => {
+                          const displayValue = readCalculatorDisplayValue(element.html)
+                          const buttons = [
+                            ['clear', 'C', '#ffe6be', '#173041', false],
+                            ['del', 'DEL', '#ffe6be', '#173041', false],
+                            ['dot', '.', '#ffffff', '#173041', false],
+                            ['op:/', '/', '#dcefff', '#14537a', false],
+                            ['digit:7', '7', '#ffffff', '#173041', false],
+                            ['digit:8', '8', '#ffffff', '#173041', false],
+                            ['digit:9', '9', '#ffffff', '#173041', false],
+                            ['op:*', '*', '#dcefff', '#14537a', false],
+                            ['digit:4', '4', '#ffffff', '#173041', false],
+                            ['digit:5', '5', '#ffffff', '#173041', false],
+                            ['digit:6', '6', '#ffffff', '#173041', false],
+                            ['op:-', '-', '#dcefff', '#14537a', false],
+                            ['digit:1', '1', '#ffffff', '#173041', false],
+                            ['digit:2', '2', '#ffffff', '#173041', false],
+                            ['digit:3', '3', '#ffffff', '#173041', false],
+                            ['op:+', '+', '#dcefff', '#14537a', false],
+                            ['digit:0', '0', '#ffffff', '#173041', true],
+                            ['eval', '=', '#2f7496', '#ffffff', true],
+                          ] as const
+                          return (
+                            <div
+                              className="html-block"
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                display: 'grid',
+                                gridTemplateRows: 'auto 1fr',
+                                gap: 10,
+                                padding: 12,
+                                borderRadius: 14,
+                                background: 'linear-gradient(155deg,#f7fbff,#eef4fa)',
+                                fontFamily: 'system-ui,-apple-system,Segoe UI,Roboto,sans-serif',
+                              }}
+                            >
+                              <input
+                                value={displayValue}
+                                readOnly
+                                data-role="display"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                style={{
+                                  width: '100%',
+                                  height: 46,
+                                  border: 0,
+                                  borderRadius: 10,
+                                  padding: '0 12px',
+                                  textAlign: 'right',
+                                  fontSize: 20,
+                                  fontWeight: 700,
+                                  color: '#173041',
+                                  background: '#ffffff',
+                                  boxShadow: 'inset 0 0 0 1px rgba(23,48,65,.12)',
+                                }}
+                              />
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(4,minmax(0,1fr))',
+                                  gap: 8,
+                                }}
+                              >
+                                {buttons.map(([action, label, background, color, wide]) => (
+                                  <button
+                                    key={action}
+                                    type="button"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={() => updateCalculatorElement(element.id, element.html, resolveCalculatorAction(displayValue, action))}
+                                    style={{
+                                      gridColumn: wide ? 'span 2' : undefined,
+                                      border: 0,
+                                      borderRadius: 10,
+                                      background,
+                                      color,
+                                      fontWeight: action === 'clear' || action === 'del' || action.startsWith('op:') || action === 'eval' ? 700 : 500,
+                                    }}
+                                  >
+                                    {label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })()
+                      ) : (
+                        <div
+                          className="html-block"
+                          dangerouslySetInnerHTML={{ __html: element.html }}
+                          onPointerDown={(event) => {
+                            if (!selected) return
+                            const target = event.target
+                            const interactiveTarget =
+                              target instanceof Element &&
+                              target.closest('button, input, textarea, select, a, [role="button"]') != null
+                            if (interactiveTarget) {
+                              event.stopPropagation()
+                            }
+                          }}
+                          style={{ width: '100%', height: '100%', overflow: 'auto', backgroundColor: 'white' }}
+                        />
+                      )
                     ) : null}
                     {(element.type === 'image' || element.type === 'video') && element.src ? (
                       element.type === 'image' ? <img src={element.src} alt={element.name} /> : <video src={element.src} controls />
@@ -3631,11 +4079,23 @@ export function WhiteboardPage() {
                       </div>
                     ) : null}
                     {element.type === 'file' ? (
-                      <div className="file-card">
-                        <File size={18} />
-                        <div>
-                          <strong>{element.name}</strong>
-                          <a href={element.src} target="_blank" rel="noreferrer">
+                      <div
+                        className="file-card"
+                        onPointerDown={(event) => {
+                          if (selected) event.stopPropagation()
+                        }}
+                      >
+                        <div className="file-card-icon">
+                          <File size={18} />
+                        </div>
+                        <div className="file-card-body">
+                          <strong title={element.name}>{element.name}</strong>
+                          <a
+                            href={element.src}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                          >
                             Open
                           </a>
                         </div>
@@ -3850,7 +4310,7 @@ export function WhiteboardPage() {
                     {element.type === 'markdown' ? (
                       editingTextId === element.id ? null : (
                         <div
-                          className="text-box-content markdown-box-content"
+                          className={`text-box-content markdown-box-content ${selected ? 'selected' : 'unselected'}`}
                           style={{ fontSize: element.fontSize }}
                           onPointerDown={(event) => {
                             event.stopPropagation()
@@ -3989,8 +4449,21 @@ export function WhiteboardPage() {
                         </svg>
                       </div>
                     ) : null}
-                    {visuallySelected && element.type !== 'ruler' ? <span className="resize-handle" /> : null}
-                    {visuallySelected ? <span className="rotate-handle" /> : null}
+                    {visuallySelected && element.type !== 'ruler' && element.type !== 'line' && element.type !== 'arrow' && !isCalculatorHTMLElement(element) ? <span className="resize-handle" /> : null}
+                    {visuallySelected ? (
+                      element.type === 'line' || element.type === 'arrow' ? (
+                        <span
+                          className="rotate-handle"
+                          style={{
+                            left: getRotateHandlePoint(element).x - element.x,
+                            top: getRotateHandlePoint(element).y - element.y,
+                            transform: 'translate(-50%, -50%)',
+                          }}
+                        />
+                      ) : (
+                        <span className="rotate-handle" />
+                      )
+                    ) : null}
                   </div>
                 )
               })}
@@ -4332,16 +4805,33 @@ export function WhiteboardPage() {
             <h3>{modal.title}</h3>
             {'message' in modal && modal.message ? <p>{modal.message}</p> : null}
             {modal.kind === 'text' ? (
-              <input
-                autoFocus
-                value={modalInput}
-                placeholder={modal.placeholder}
-                onChange={(event) => setModalInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') confirmTextModal()
-                  if (event.key === 'Escape') cancelTextModal()
-                }}
-              />
+              modal.multiline ? (
+                <textarea
+                  autoFocus
+                  className="app-modal-textarea"
+                  value={modalInput}
+                  placeholder={modal.placeholder}
+                  onChange={(event) => setModalInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                      event.preventDefault()
+                      confirmTextModal()
+                    }
+                    if (event.key === 'Escape') cancelTextModal()
+                  }}
+                />
+              ) : (
+                <input
+                  autoFocus
+                  value={modalInput}
+                  placeholder={modal.placeholder}
+                  onChange={(event) => setModalInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') confirmTextModal()
+                    if (event.key === 'Escape') cancelTextModal()
+                  }}
+                />
+              )
             ) : null}
             <div className="app-modal-actions">
               <button onClick={modal.kind === 'confirm' ? cancelConfirmModal : cancelTextModal}>

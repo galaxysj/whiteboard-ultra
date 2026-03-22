@@ -48,6 +48,50 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage })
 
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif'])
+const VIDEO_EXTENSIONS = new Set([
+  '.mp4',
+  '.webm',
+  '.mov',
+  '.m4v',
+  '.avi',
+  '.mkv',
+  '.ogv',
+  '.mpeg',
+  '.mpg',
+])
+
+const decodeUploadFilename = (name: string) => Buffer.from(name, 'latin1').toString('utf8')
+
+const assertAssetFileMatchesKind = (kind: Asset['kind'], file: Express.Multer.File) => {
+  const decodedName = decodeUploadFilename(file.originalname)
+  const extension = path.extname(decodedName).toLowerCase()
+  const mimeType = (file.mimetype || '').toLowerCase()
+
+  if (kind === 'image') {
+    if (extension === '.svg' || mimeType === 'image/svg+xml') {
+      const error = new Error('SVG uploads are not allowed for image embeds.')
+      ;(error as Error & { status?: number }).status = 400
+      throw error
+    }
+    if (!mimeType.startsWith('image/') && !IMAGE_EXTENSIONS.has(extension)) {
+      const error = new Error('Only image files are allowed for image embeds.')
+      ;(error as Error & { status?: number }).status = 400
+      throw error
+    }
+  }
+
+  if (kind === 'video') {
+    if (!mimeType.startsWith('video/') && !VIDEO_EXTENSIONS.has(extension)) {
+      const error = new Error('Only video files are allowed for video embeds.')
+      ;(error as Error & { status?: number }).status = 400
+      throw error
+    }
+  }
+
+  return decodedName
+}
+
 const ensureBoard = (boardId: string) => {
   const board = getBoard(boardId)
   if (!board) {
@@ -143,24 +187,30 @@ app.get('/api/assets', (req, res) => {
 })
 
 app.post('/api/assets', upload.single('file'), (req, res) => {
-  const boardId = typeof req.body?.boardId === 'string' ? req.body.boardId : ''
-  const kind = req.body?.kind as Asset['kind'] | undefined
+  try {
+    const boardId = typeof req.body?.boardId === 'string' ? req.body.boardId : ''
+    const kind = req.body?.kind as Asset['kind'] | undefined
 
-  if (!boardId || !kind || !req.file) {
-    return res.status(400).json({ error: 'boardId, kind and file are required.' })
+    if (!boardId || !kind || !req.file) {
+      return res.status(400).json({ error: 'boardId, kind and file are required.' })
+    }
+
+    const originalName = assertAssetFileMatchesKind(kind, req.file)
+    const asset = createAsset({
+      boardId,
+      kind,
+      name: originalName,
+      mimeType: req.file.mimetype || 'application/octet-stream',
+      size: req.file.size,
+      storagePath: req.file.filename,
+      sourceUrl: `/uploads/${req.file.filename}`,
+    })
+
+    return res.status(201).json(asset)
+  } catch (error) {
+    const payload = getErrorPayload(error, 'Failed to upload asset.')
+    return res.status(payload.status).json(payload.body)
   }
-
-  const asset = createAsset({
-    boardId,
-    kind,
-    name: req.file.originalname,
-    mimeType: req.file.mimetype || 'application/octet-stream',
-    size: req.file.size,
-    storagePath: req.file.filename,
-    sourceUrl: `/uploads/${req.file.filename}`,
-  })
-
-  return res.status(201).json(asset)
 })
 
 app.get('/api/settings/ai', (_req, res) => {

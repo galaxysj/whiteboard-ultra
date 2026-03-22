@@ -118,7 +118,7 @@ export const createShapeElement = (
   options?: { fill?: string; stroke?: string },
 ): BoardElement => {
   if (type === 'line' || type === 'arrow') {
-    const padding = 12
+    const padding = 4
     const x = Math.min(start.x, end.x) - padding
     const y = Math.min(start.y, end.y) - padding
     const width = Math.max(1, Math.abs(end.x - start.x)) + padding * 2
@@ -175,6 +175,7 @@ export const createPlacedElement = (
     case 'iframe':
       return {
         ...baseElement('iframe', point.x, point.y, 480, 280, zIndex),
+        fill: '#ffffff',
         src: payload?.src ?? 'https://example.com',
         title: payload?.title ?? 'Embedded content',
       }
