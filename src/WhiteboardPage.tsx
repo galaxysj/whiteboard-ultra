@@ -26,6 +26,7 @@ import {
   FileCode2,
   FileImage,
   FileVideo,
+  FlipHorizontal,
   FolderOpen,
   Gauge,
   Plus,
@@ -1006,15 +1007,26 @@ const pointToSegmentDistance = (point: Point, start: Point, end: Point) => {
     y: start.y + dy * t,
   })
 }
-const getCompassLocalGeometry = (spread: number) => {
-  const leftTip = COMPASS_LEFT_TIP
+const getCompassLocalGeometry = (spread: number, flipped = false) => {
+  let leftTip = COMPASS_LEFT_TIP
   const openAngle = getCompassAngleForSpread(spread)
   const rightAbsoluteAngle = COMPASS_LEFT_ABSOLUTE_ANGLE - openAngle
   const openRotation = rightAbsoluteAngle - COMPASS_RIGHT_BASE_ABSOLUTE_ANGLE
-  const rightStart = rotateAround(COMPASS_RIGHT_START, COMPASS_HINGE, openRotation)
-  const rightTip = rotateAround(COMPASS_RIGHT_TIP_BASE, COMPASS_HINGE, openRotation)
-  const hinge = COMPASS_HANDLE_CENTER
-  const leftStart = COMPASS_LEFT_START
+  let rightStart = rotateAround(COMPASS_RIGHT_START, COMPASS_HINGE, openRotation)
+  let rightTip = rotateAround(COMPASS_RIGHT_TIP_BASE, COMPASS_HINGE, openRotation)
+  let hinge = COMPASS_HANDLE_CENTER
+  let leftStart = COMPASS_LEFT_START
+
+  if (flipped) {
+    const mirrorX = COMPASS_HINGE.x
+    const mirror = (p: Point) => ({ x: mirrorX - (p.x - mirrorX), y: p.y })
+    leftTip = mirror(leftTip)
+    rightStart = mirror(rightStart)
+    rightTip = mirror(rightTip)
+    hinge = mirror(hinge)
+    leftStart = mirror(leftStart)
+  }
+
   const baseDrawAngle = normalizeAngle(radiansToDegrees(Math.atan2(rightTip.y - leftTip.y, rightTip.x - leftTip.x)))
   const handleAngle = normalizeAngle(radiansToDegrees(Math.atan2(hinge.y - leftTip.y, hinge.x - leftTip.x)))
   const drawCenter = leftTip
@@ -1036,7 +1048,7 @@ const getCompassLocalGeometry = (spread: number) => {
   }
 }
 const getCompassGeometry = (element: Extract<BoardElement, { type: 'compass' }>) => {
-  const local = getCompassLocalGeometry(element.radius)
+  const local = getCompassLocalGeometry(element.radius, element.flipped)
   const drawRotation = degreesToRadians(signedAngleDelta(element.endAngle, local.baseDrawAngle))
   const rotatedHinge = rotateAround(local.hinge, local.leftTip, drawRotation)
   const rotatedLeftStart = rotateAround(local.leftStart, local.leftTip, drawRotation)
@@ -3534,6 +3546,24 @@ export function WhiteboardPage() {
             ) : null}
             {isSelectionTool && selectedCompassElement ? (
               <>
+                <button
+                  className={selectedCompassElement.flipped ? 'tool-button active' : 'tool-button'}
+                  onClick={() => {
+                    setElements((prev) => {
+                      const next = prev.map((element) =>
+                        element.id === selectedCompassElement.id && element.type === 'compass'
+                          ? { ...element, flipped: !element.flipped, updatedAt: new Date().toISOString() }
+                          : element,
+                      )
+                      elementsRef.current = next
+                      return next
+                    })
+                  }}
+                  title="Flip compass"
+                  data-tooltip="Flip compass"
+                >
+                  <FlipHorizontal size={15} />
+                </button>
                 <label className="eraser-size" title="Compass stroke thickness">
                   <Compass size={13} />
                   <input
@@ -4220,13 +4250,14 @@ export function WhiteboardPage() {
                         width={element.width}
                         height={element.height}
                         viewBox={`0 0 ${COMPASS_SOURCE_WIDTH} ${COMPASS_SOURCE_HEIGHT}`}
-                        style={{ overflow: 'visible' }}
+                        style={{ overflow: 'visible', transform: element.flipped ? 'scaleX(-1)' : undefined }}
                       >
                         {(() => {
-                          const geometry = getCompassLocalGeometry(element.radius)
+                          const geometry = getCompassLocalGeometry(element.radius, false)
                           const openRotateDegrees =
                             ((geometry.rightAbsoluteAngle - COMPASS_RIGHT_BASE_ABSOLUTE_ANGLE) * 180) / Math.PI
-                          const drawRotateDegrees = signedAngleDelta(element.endAngle, geometry.baseDrawAngle)
+                          const effectiveEndAngle = element.flipped ? 180 - element.endAngle : element.endAngle
+                          const drawRotateDegrees = signedAngleDelta(effectiveEndAngle, geometry.baseDrawAngle)
                           return (
                             <>
                               <defs>

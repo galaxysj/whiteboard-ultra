@@ -113,6 +113,7 @@ export interface CompassElement extends ElementBase {
   radius: number
   startAngle: number
   endAngle: number
+  flipped?: boolean
 }
 
 export interface GraphElement extends ElementBase {

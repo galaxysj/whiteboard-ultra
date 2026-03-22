@@ -202,6 +202,7 @@ export const createPlacedElement = (
         startAngle: 0,
         endAngle: 359.8584,
         fill: 'transparent',
+        flipped: false,
       } satisfies CompassElement
     case 'graph':
       return {
