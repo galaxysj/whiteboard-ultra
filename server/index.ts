@@ -5,8 +5,7 @@ import express from 'express'
 import multer from 'multer'
 import { nanoid } from 'nanoid'
 import {
-  boardContext,
-  generateAgentResponse,
+  runAskWithToolCalls,
   runBuildWithToolCalls,
 } from './ai.js'
 import {
@@ -55,6 +54,23 @@ const ensureBoard = (boardId: string) => {
     throw new Error('Board not found.')
   }
   return board
+}
+
+const getErrorPayload = (error: unknown, fallback: string) => {
+  if (error instanceof Error) {
+    const record = error as Error & { status?: number; details?: string }
+    return {
+      status: typeof record.status === 'number' ? record.status : 400,
+      body: {
+        error: record.message || fallback,
+        details: typeof record.details === 'string' ? record.details : undefined,
+      },
+    }
+  }
+  return {
+    status: 400,
+    body: { error: fallback },
+  }
 }
 
 const normalizeSettings = (input: Partial<AIProviderSettings>): AIProviderSettings => ({
@@ -161,14 +177,59 @@ app.post('/api/agent/ask', async (req, res) => {
     const payload = req.body as AgentAskRequest
     const board = ensureBoard(payload.boardId)
     const settings = getAISettings()
-    const response = await generateAgentResponse(
+    const response = await runAskWithToolCalls(
       settings,
-      'You are Whiteboard Pro assistant. Answer in concise English based on the provided whiteboard state only. If the board does not contain enough information, say so clearly.',
-      `${JSON.stringify(boardContext(board, payload.selectedElementId, payload.viewOrigin), null, 2)}\n\nUser question:\n${payload.question}`,
+      board,
+      payload.question,
+      payload.selectedElementId,
+      payload.viewOrigin,
+      payload.viewBounds,
+      payload.screenshotDataUrl,
+      Array.isArray(payload.history) ? payload.history : [],
     )
-    res.json({ answer: response.trim() })
+    res.json(response)
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Ask failed.' })
+    const failure = getErrorPayload(error, 'Ask failed.')
+    res.status(failure.status).json(failure.body)
+  }
+})
+
+app.post('/api/agent/ask/stream', async (req, res) => {
+  try {
+    const payload = req.body as AgentAskRequest
+    const board = ensureBoard(payload.boardId)
+    const settings = getAISettings()
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-cache, no-transform')
+    res.setHeader('X-Accel-Buffering', 'no')
+    res.write(`${JSON.stringify({ type: 'thinking_start' })}\n`)
+    const result = await runAskWithToolCalls(
+      settings,
+      board,
+      payload.question,
+      payload.selectedElementId,
+      payload.viewOrigin,
+      payload.viewBounds,
+      payload.screenshotDataUrl,
+      Array.isArray(payload.history) ? payload.history : [],
+    )
+    res.write(`${JSON.stringify({ type: 'thought_complete', thoughtSeconds: result.thoughtSeconds ?? 0 })}\n`)
+    for (const event of result.toolEvents) {
+      res.write(`${JSON.stringify({ type: 'tool', event })}\n`)
+    }
+    const chunks = result.answer.match(/.{1,36}(\s|$)|\S+/g) ?? [result.answer]
+    for (const chunk of chunks) {
+      res.write(`${JSON.stringify({ type: 'token', value: chunk })}\n`)
+    }
+    res.write(`${JSON.stringify({ type: 'done' })}\n`)
+    res.end()
+  } catch (error) {
+    if (!res.headersSent) {
+      const failure = getErrorPayload(error, 'Ask stream failed.')
+      res.status(failure.status).json(failure.body)
+      return
+    }
+    res.end()
   }
 })
 
@@ -183,14 +244,19 @@ app.post('/api/agent/build', async (req, res) => {
       payload.prompt,
       payload.selectedElementId,
       payload.viewOrigin,
+      payload.viewBounds,
+      payload.screenshotDataUrl,
+      Array.isArray(payload.history) ? payload.history : [],
     )
     const saved = saveBoardElements(board.id, result.elements)
     res.json({
       ...result,
       elements: saved?.elements ?? result.elements,
+      boardUpdatedAt: saved?.updatedAt,
     })
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Build failed.' })
+    const failure = getErrorPayload(error, 'Build failed.')
+    res.status(failure.status).json(failure.body)
   }
 })
 

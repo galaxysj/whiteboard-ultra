@@ -27,15 +27,6 @@ const COMPASS_HEIGHT = 560
 const COMPASS_DEFAULT_SPREAD = 220
 export const SHAPE_MIN_SIZE = 16
 
-const estimateTextLines = (text: string) => Math.max(1, text.split('\n').length)
-const estimateTextColumns = (text: string) =>
-  Math.max(4, ...text.split('\n').map((line) => line.trimEnd().length))
-
-const getTextBoxSize = (text: string, fontSize: number) => ({
-  width: Math.max(140, Math.round(fontSize * (estimateTextColumns(text) * 0.58 + 1.6))),
-  height: Math.max(52, Math.round(fontSize * (estimateTextLines(text) * 1.45 + 0.8))),
-})
-
 const estimateLatexTextLength = (latex: string) =>
   Math.max(
     3,
@@ -182,6 +173,7 @@ export const createPlacedElement = (
         xMax: 8,
         yMin: -5,
         yMax: 5,
+        expressions: ['x'],
       } satisfies GraphElement
     case 'text':
       return {
@@ -292,18 +284,12 @@ export const resizeElement = (
   }
 
   if (element.type === 'text' || element.type === 'markdown') {
-    const nextWidth = Math.max(80, width)
-    const nextHeight = Math.max(42, height)
-    const widthScale = nextWidth / Math.max(1, element.width)
-    const heightScale = nextHeight / Math.max(1, element.height)
-    const scale = Math.max(0.4, Math.min(4, Math.max(widthScale, heightScale)))
-    const fontSize = Math.max(16, Math.min(144, Math.round(element.fontSize * scale)))
-    const box = getTextBoxSize(element.text || 'Text', fontSize)
+    const nextWidth = Math.max(28, width)
+    const nextHeight = Math.max(24, height)
     return {
       ...element,
-      width: Math.max(nextWidth, box.width),
-      height: Math.max(nextHeight, box.height),
-      fontSize,
+      width: nextWidth,
+      height: nextHeight,
       updatedAt: now(),
     }
   }

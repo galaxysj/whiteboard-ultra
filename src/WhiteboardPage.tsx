@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ComponentType, CSSProperties } from 'react'
 import Editor from '@monaco-editor/react'
 import getStroke from 'perfect-freehand'
+import PlotlyFactoryModule from 'react-plotly.js/factory'
+import PlotlyModule from 'plotly.js-dist-min'
+import type { Data as PlotlyData, Layout as PlotlyLayout } from 'plotly.js'
+import agentCursorSvg from './assets/cursor.svg'
 import {
   ALargeSmall,
   ArrowRight,
@@ -12,6 +17,7 @@ import {
   CircleX,
   Code2,
   Compass,
+  Dot,
   Eraser,
   File,
   FileCode2,
@@ -19,13 +25,12 @@ import {
   FileVideo,
   FolderOpen,
   Gauge,
+  Plus,
   Grid3x3,
-  MessageSquare,
   Minus,
   MousePointer2,
   Pen,
   PenTool,
-  Plus,
   RectangleHorizontal,
   Ruler,
   Save,
@@ -33,7 +38,6 @@ import {
   Send,
   SidebarClose,
   SidebarOpen,
-  SlidersHorizontal,
   Settings2,
   SquareCode,
   Sparkles,
@@ -50,10 +54,14 @@ import {
   CANVAS_WIDTH,
   type AIProviderSettings,
   type AgentBuildResponse,
+  type AgentConversationMessage,
+  type AgentToolAction,
+  type AgentToolEvent,
   type Asset,
   type Board,
   type BoardElement,
   type CodeElement,
+  type GraphElement,
   type MonacoElement,
   type Point,
   type ShapeElement,
@@ -74,8 +82,20 @@ import {
 } from './lib/board.ts'
 
 type Viewport = { x: number; y: number; zoom: number }
+type AgentCursorState = {
+  visible: boolean
+  x: number
+  y: number
+}
 type AgentMode = 'chat' | 'build'
-type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; createdAt: string }
+type ChatMessage = {
+  id: string
+  role: 'user' | 'assistant' | 'tool' | 'error' | 'thought'
+  content: string
+  createdAt: string
+  order: number
+  status?: 'thinking' | 'done'
+}
 type ProviderPreset = {
   id: string
   name: string
@@ -89,12 +109,14 @@ type ModelPreset = {
   name: string
   modelId: string
   providerId: string
+  stream: boolean
+  contextSize: number
 }
 type DropdownOption = {
   value: string
   label: string
 }
-type CanvasToolId = ToolId | 'eraser-stroke'
+type CanvasToolId = ToolId | 'eraser-stroke' | 'dot'
 type DraftState =
   | { type: 'shape'; tool: 'line' | 'arrow' | 'rectangle' | 'ellipse'; start: Point; end: Point }
   | { type: 'pen'; rawPoints: Point[]; points: Point[] }
@@ -133,6 +155,13 @@ type DragState =
       points: Point[]
       continuousAngle: number
       endAngle: number
+    }
+  | {
+      kind: 'compass-rotate'
+      elementId: string
+      center: Point
+      angleOffset: number
+      original: BoardElement
     }
   | null
 
@@ -178,6 +207,7 @@ const MONACO_LANGUAGES = [
 const TOOL_DEFS: Array<{ id: CanvasToolId; label: string; category: ToolCategory; icon: typeof MousePointer2 }> = [
   { id: 'select', label: 'Select', category: 'general', icon: MousePointer2 },
   { id: 'pen', label: 'Pen', category: 'general', icon: PenTool },
+  { id: 'dot', label: 'Dot', category: 'general', icon: Dot },
   { id: 'eraser-stroke', label: 'Eraser', category: 'general', icon: Eraser },
   { id: 'line', label: 'Line', category: 'general', icon: Minus },
   { id: 'arrow', label: 'Arrow', category: 'general', icon: ArrowRight },
@@ -217,26 +247,24 @@ const defaultAISettings: AIProviderSettings = {
 const AI_PROVIDER_LIST_STORAGE_KEY = 'whiteboard.ai.provider-list'
 const AI_MODEL_LIST_STORAGE_KEY = 'whiteboard.ai.model-list'
 
-const defaultProviderPresets: ProviderPreset[] = [
-  { id: 'provider-openai', name: 'OpenAI', providerType: 'openai', baseUrl: '', apiKey: '' },
-  { id: 'provider-gemini', name: 'Gemini', providerType: 'gemini', baseUrl: '', apiKey: '' },
-  {
-    id: 'provider-compatible',
-    name: 'OpenAI Compatible',
-    providerType: 'compatible',
-    baseUrl: 'https://api.openai.com/v1',
-    apiKey: '',
-  },
-]
-
-const defaultModelPresets: ModelPreset[] = [
-  { id: 'model-gpt-5', name: 'GPT 5', modelId: 'gpt-5-2025-08-07', providerId: 'provider-openai' },
-  { id: 'model-gpt-5-mini', name: 'GPT 5 Mini', modelId: 'gpt-5-mini-2025-08-07', providerId: 'provider-openai' },
-  { id: 'model-gemini-3-flash', name: 'Gemini 3 Flash', modelId: 'gemini-3-flash-preview', providerId: 'provider-gemini' },
-  { id: 'model-gemini-3.1-pro', name: 'Gemini 3.1 Pro', modelId: 'gemini-3.1-pro-preview', providerId: 'provider-gemini' },
-]
+const defaultProviderPresets: ProviderPreset[] = []
+const defaultModelPresets: ModelPreset[] = []
 
 const createLocalId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+const cloneElementDeep = <T,>(value: T): T =>
+  typeof structuredClone === 'function' ? structuredClone(value) : (JSON.parse(JSON.stringify(value)) as T)
+const createPlotlyComponent = (
+  (PlotlyFactoryModule as unknown as { default?: (plotly: unknown) => unknown }).default ??
+  (PlotlyFactoryModule as unknown as (plotly: unknown) => unknown)
+)
+const plotlyRuntime = (PlotlyModule as unknown as { default?: unknown }).default ?? (PlotlyModule as unknown)
+const Plot = createPlotlyComponent(plotlyRuntime) as ComponentType<{
+  data: PlotlyData[]
+  layout?: Partial<PlotlyLayout>
+  config?: Record<string, unknown>
+  style?: CSSProperties
+}>
+const estimateTokenCount = (text: string) => Math.max(1, Math.ceil(text.length / 4))
 const parseProviderPresets = (raw: string | null) => {
   if (!raw) return defaultProviderPresets
   try {
@@ -254,7 +282,7 @@ const parseProviderPresets = (raw: string | null) => {
         ...item,
         apiKey: typeof item?.apiKey === 'string' ? item.apiKey : '',
       }))
-    return filtered.length > 0 ? filtered : defaultProviderPresets
+    return filtered
   } catch {
     return defaultProviderPresets
   }
@@ -264,14 +292,23 @@ const parseModelPresets = (raw: string | null) => {
   try {
     const parsed = JSON.parse(raw) as ModelPreset[]
     if (!Array.isArray(parsed)) return defaultModelPresets
-    const filtered = parsed.filter(
-      (item) =>
-        typeof item?.id === 'string' &&
-        typeof item?.name === 'string' &&
-        typeof item?.modelId === 'string' &&
-        typeof item?.providerId === 'string',
-    )
-    return filtered.length > 0 ? filtered : defaultModelPresets
+    const filtered = parsed
+      .filter(
+        (item) =>
+          typeof item?.id === 'string' &&
+          typeof item?.name === 'string' &&
+          typeof item?.modelId === 'string' &&
+          typeof item?.providerId === 'string',
+      )
+      .map((item) => ({
+        ...item,
+        stream: typeof item?.stream === 'boolean' ? item.stream : false,
+        contextSize:
+          typeof item?.contextSize === 'number' && Number.isFinite(item.contextSize) && item.contextSize > 0
+            ? item.contextSize
+            : 128000,
+      }))
+    return filtered
   } catch {
     return defaultModelPresets
   }
@@ -333,7 +370,11 @@ function CustomDropdown({
 }
 
 const sizeFormatter = new Intl.NumberFormat('en-US')
-const boardCenter = () => ({ x: CANVAS_WIDTH / 2 - 800, y: CANVAS_HEIGHT / 2 - 600, zoom: 1 })
+const boardCenter = () => ({
+  x: CANVAS_WIDTH / 2 - 800,
+  y: CANVAS_HEIGHT / 2 - 600,
+  zoom: 1,
+})
 const GRID_STEP = 36
 const DEFAULT_ERASER_RADIUS = 12
 const DEFAULT_PEN_STROKE_WIDTH = 2
@@ -352,6 +393,14 @@ const PEN_HIGH_SPEED_SMOOTH = 0.42
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
 const normalizeAngle = (angle: number) => ((angle % 360) + 360) % 360
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+const clampViewportPosition = (x: number, y: number, zoom: number, viewWidth: number, viewHeight: number) => {
+  const visibleWidth = viewWidth / zoom
+  const visibleHeight = viewHeight / zoom
+  return {
+    x: clamp(x, 0, Math.max(0, CANVAS_WIDTH - visibleWidth)),
+    y: clamp(y, 0, Math.max(0, CANVAS_HEIGHT - visibleHeight)),
+  }
+}
 const scaleCompassPoint = (x: number, y: number) => ({ x: x * COMPASS_SCALE, y: y * COMPASS_SCALE })
 const COMPASS_HINGE_SOURCE = { x: 150, y: 80 }
 const COMPASS_HANDLE_CENTER_SOURCE = { x: 150.514076, y: 83.084455 }
@@ -564,6 +613,117 @@ const drawEllipsePreview = (
   ctx.ellipse(x + width / 2, y + height / 2, width / 2, height / 2, 0, 0, Math.PI * 2)
   if (filled) ctx.fill()
   ctx.stroke()
+}
+const normalizeGraphExpressions = (element: GraphElement) =>
+  Array.isArray(element.expressions) && element.expressions.length > 0 ? element.expressions : ['x']
+const getGraphInlineEditorHeight = (rowCount: number) => 12 + Math.max(1, rowCount) * 26 + (Math.max(1, rowCount) - 1) * 6 + 6 + 26
+const sanitizeGraphRange = (min: number, max: number, fallbackMin: number, fallbackMax: number): [number, number] => {
+  if (Number.isFinite(min) && Number.isFinite(max) && max > min) return [min, max]
+  return [fallbackMin, fallbackMax]
+}
+const GRAPH_COLORS = ['#1f5f84', '#e0607a', '#2f948b', '#9b59b6', '#f39c12']
+
+const mathScopeNames = [
+  'abs',
+  'acos',
+  'asin',
+  'atan',
+  'ceil',
+  'cos',
+  'exp',
+  'floor',
+  'log',
+  'max',
+  'min',
+  'pow',
+  'round',
+  'sign',
+  'sin',
+  'sqrt',
+  'tan',
+  'PI',
+  'E',
+] as const
+
+const compileGraphExpression = (expression: string) => {
+  const normalized = expression.trim()
+  if (!normalized) return null
+  const source = normalized.replace(/\^/g, '**')
+  const args = ['x', ...mathScopeNames]
+  const body = `"use strict"; return (${source});`
+  const fn = Function(...args, body) as (...params: unknown[]) => number
+  return (x: number) =>
+    fn(
+      x,
+      Math.abs,
+      Math.acos,
+      Math.asin,
+      Math.atan,
+      Math.ceil,
+      Math.cos,
+      Math.exp,
+      Math.floor,
+      Math.log,
+      Math.max,
+      Math.min,
+      Math.pow,
+      Math.round,
+      Math.sign,
+      Math.sin,
+      Math.sqrt,
+      Math.tan,
+      Math.PI,
+      Math.E,
+    )
+}
+
+const buildGraphTrace = (element: GraphElement, expression: string, index: number): PlotlyData | null => {
+  const compiled = compileGraphExpression(expression)
+  if (!compiled) return null
+  const xRange = element.xMax - element.xMin
+  const yRange = element.yMax - element.yMin
+  if (!Number.isFinite(xRange) || !Number.isFinite(yRange) || xRange <= 0 || yRange <= 0) return null
+  const samples = Math.max(180, Math.floor(element.width))
+  const xs: number[] = []
+  const ys: number[] = []
+  for (let index = 0; index <= samples; index += 1) {
+    const x = element.xMin + (index / samples) * xRange
+    let y = Number.NaN
+    try {
+      y = compiled(x)
+    } catch {
+      xs.push(x)
+      ys.push(Number.NaN)
+      continue
+    }
+    if (!Number.isFinite(y)) {
+      xs.push(x)
+      ys.push(Number.NaN)
+      continue
+    }
+    if (Math.abs(y) > Math.max(1_000, Math.abs(element.yMin) * 40, Math.abs(element.yMax) * 40)) {
+      xs.push(x)
+      ys.push(Number.NaN)
+      continue
+    }
+    xs.push(x)
+    ys.push(y)
+  }
+  return {
+    type: 'scatter',
+    mode: 'lines',
+    x: xs,
+    y: ys,
+    line: {
+      color: GRAPH_COLORS[index % GRAPH_COLORS.length],
+      width: 2,
+      shape: 'spline',
+      smoothing: 0.6,
+    },
+    name: expression,
+    hovertemplate: 'x=%{x:.3f}<br>y=%{y:.3f}<extra></extra>',
+    connectgaps: false,
+  }
 }
 const renderRectangleSvg = (element: ShapeElement) => {
   const svgWidth = Math.max(1, element.width)
@@ -786,18 +946,23 @@ const getCompassGeometry = (element: Extract<BoardElement, { type: 'compass' }>)
 const getCompassHitZone = (element: Extract<BoardElement, { type: 'compass' }>, point: Point) => {
   const { hinge, leftStart, leftTip, rightStart, rightTip } = getCompassGeometry(element)
   if (distance(point, hinge) <= 30) return 'handle' as const
-  if (distance(point, rightTip) <= 28 || pointToSegmentDistance(point, rightStart, rightTip) <= 18) return 'pen' as const
+  if (distance(point, rightTip) <= 28) return 'pen' as const
+  if (
+    pointToSegmentDistance(point, rightStart, rightTip) <= 18 ||
+    pointToSegmentDistance(point, hinge, rightStart) <= 20
+  ) {
+    return 'right-body' as const
+  }
   if (
     distance(point, leftTip) <= 24 ||
     pointToSegmentDistance(point, leftStart, leftTip) <= 18 ||
     pointToSegmentDistance(point, hinge, leftStart) <= 20 ||
-    pointToSegmentDistance(point, hinge, rightStart) <= 20 ||
     distance(point, {
       x: (hinge.x + leftTip.x + rightTip.x) / 3,
       y: (hinge.y + leftTip.y + rightTip.y) / 3,
     }) <= 36
   ) {
-    return 'body' as const
+    return 'left-body' as const
   }
   return null
 }
@@ -831,6 +996,16 @@ const compareElementStack = (a: BoardElement, b: BoardElement) => {
 const sortByZ = (elements: BoardElement[]) => [...elements].sort((a, b) => compareElementStack(b, a))
 const getNextZIndex = (elements: BoardElement[]) =>
   elements.reduce((max, element) => Math.max(max, element.zIndex), 0) + 1
+const isTypingTarget = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null
+  if (!element) return false
+  return (
+    element.tagName === 'INPUT' ||
+    element.tagName === 'TEXTAREA' ||
+    element.tagName === 'SELECT' ||
+    element.isContentEditable
+  )
+}
 const getRenderZIndex = (element: BoardElement, maxZIndex: number) =>
   element.type === 'compass' ? maxZIndex + 1000 + element.zIndex : element.zIndex
 
@@ -848,11 +1023,17 @@ export function WhiteboardPage() {
   const eraserPointsRef = useRef<Point[]>([])
   const modalTextResolverRef = useRef<((value: string | null) => void) | null>(null)
   const modalConfirmResolverRef = useRef<((value: boolean) => void) | null>(null)
+  const toolEventChainRef = useRef<Promise<void>>(Promise.resolve())
+  const chatSessionRef = useRef(0)
+  const selectedElementIdRef = useRef<string | null>(null)
+  const pointerWorldRef = useRef<Point | null>(null)
+  const editingTextIdRef = useRef<string | null>(null)
+  const copiedElementRef = useRef<BoardElement | null>(null)
 
   const [boards, setBoards] = useState<Board[]>([])
   const [activeBoardId, setActiveBoardId] = useState('')
   const [elements, setElements] = useState<BoardElement[]>([])
-  const [assets, setAssets] = useState<Asset[]>([])
+  const [, setAssets] = useState<Asset[]>([])
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null)
   const [tool, setTool] = useState<CanvasToolId>('select')
   const [viewport, setViewport] = useState<Viewport>(boardCenter)
@@ -891,8 +1072,12 @@ export function WhiteboardPage() {
   const [eraserRadius, setEraserRadius] = useState(DEFAULT_ERASER_RADIUS)
   const [eraserPenOnly, setEraserPenOnly] = useState(false)
   const [eraserPointer, setEraserPointer] = useState<Point | null>(null)
+  const [pointerWorld, setPointerWorld] = useState<Point | null>(null)
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [codeLanguage, setCodeLanguage] = useState('javascript')
+  const [graphExpressionDrafts, setGraphExpressionDrafts] = useState<string[]>([])
+  const [agentCursor, setAgentCursor] = useState<AgentCursorState>({ visible: false, x: 0, y: 0 })
+  const chatMessageOrderRef = useRef(0)
 
   const activeBoard = useMemo(
     () => boards.find((board) => board.id === activeBoardId) ?? null,
@@ -907,6 +1092,10 @@ export function WhiteboardPage() {
     () => providerPresets.find((provider) => provider.id === selectedChatModel?.providerId) ?? null,
     [providerPresets, selectedChatModel],
   )
+  const orderedChatMessages = useMemo(
+    () => [...chatMessages].sort((a, b) => a.order - b.order),
+    [chatMessages],
+  )
   const commitElements = (nextElements: BoardElement[], pushHistory = true) => {
     const previousElements = elementsRef.current
     elementsRef.current = nextElements
@@ -915,6 +1104,19 @@ export function WhiteboardPage() {
       setHistory((prev) => [...prev.slice(-60), previousElements])
       setFuture([])
     }
+  }
+
+  const duplicateElementAt = (element: BoardElement, target: Point) => {
+    const cloned = cloneElementDeep(element)
+    const moved = translateElement(cloned, target.x - element.x, target.y - element.y)
+    const now = new Date().toISOString()
+    return {
+      ...moved,
+      id: createLocalId(element.type),
+      zIndex: getNextZIndex(elementsRef.current),
+      createdAt: now,
+      updatedAt: now,
+    } satisfies BoardElement
   }
 
   const syncBoardVersion = (updatedAt: string) => {
@@ -1066,6 +1268,18 @@ export function WhiteboardPage() {
   }, [elements])
 
   useEffect(() => {
+    selectedElementIdRef.current = selectedElementId
+  }, [selectedElementId])
+
+  useEffect(() => {
+    pointerWorldRef.current = pointerWorld
+  }, [pointerWorld])
+
+  useEffect(() => {
+    editingTextIdRef.current = editingTextId
+  }, [editingTextId])
+
+  useEffect(() => {
     dragRef.current = drag
   }, [drag])
 
@@ -1085,6 +1299,85 @@ export function WhiteboardPage() {
     if (!node) return
     node.scrollTop = node.scrollHeight
   }, [chatMessages])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isTyping = isTypingTarget(event.target) || editingTextIdRef.current != null
+      const key = event.key.toLowerCase()
+
+      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && key === 's') {
+        if (isTyping) return
+        event.preventDefault()
+        setEditingTextId(null)
+        setTool('select')
+        return
+      }
+
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'l') {
+        if (isTypingTarget(event.target)) return
+        event.preventDefault()
+        setAiOpen((value) => !value)
+        return
+      }
+
+      if (isTyping) return
+
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'c') {
+        const selected = selectedElementIdRef.current
+        if (!selected) return
+        const element = elementsRef.current.find((item) => item.id === selected) ?? null
+        if (!element) return
+        copiedElementRef.current = cloneElementDeep(element)
+        event.preventDefault()
+        setStatusMessage(`Copied ${element.type}`)
+        return
+      }
+
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'v') {
+        const copied = copiedElementRef.current
+        if (!copied) return
+        event.preventDefault()
+        const fallbackPoint = {
+          x: viewport.x + (canvasRef.current?.clientWidth ?? 0) / Math.max(1, viewport.zoom) / 2,
+          y: viewport.y + (canvasRef.current?.clientHeight ?? 0) / Math.max(1, viewport.zoom) / 2,
+        }
+        const pasted = duplicateElementAt(copied, pointerWorldRef.current ?? fallbackPoint)
+        commitElements([...elementsRef.current, pasted])
+        setSelectedElementId(pasted.id)
+        setTool('select')
+        setStatusMessage(`Pasted ${pasted.type}`)
+        return
+      }
+
+      if (event.key === 'Delete') {
+        const selected = selectedElementIdRef.current
+        if (!selected) return
+        const element = elementsRef.current.find((item) => item.id === selected) ?? null
+        if (!element) return
+        event.preventDefault()
+        commitElements(elementsRef.current.filter((item) => item.id !== selected))
+        setSelectedElementId(null)
+        setStatusMessage(`Deleted ${element.type}`)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [viewport.x, viewport.y, viewport.zoom])
+
+  useEffect(() => {
+    const clampCurrentViewport = () => {
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setViewport((prev) => {
+        const next = clampViewportPosition(prev.x, prev.y, prev.zoom, rect.width, rect.height)
+        if (next.x === prev.x && next.y === prev.y) return prev
+        return { ...prev, ...next }
+      })
+    }
+    clampCurrentViewport()
+    window.addEventListener('resize', clampCurrentViewport)
+    return () => window.removeEventListener('resize', clampCurrentViewport)
+  }, [])
 
   const screenToWorld = (clientX: number, clientY: number): Point => {
     const rect = canvasRef.current?.getBoundingClientRect()
@@ -1200,6 +1493,20 @@ export function WhiteboardPage() {
           setDrag(nextDrag)
           return
         }
+        if (hitZone === 'right-body') {
+          const leftTip = { x: hit.x + COMPASS_LEFT_TIP.x, y: hit.y + COMPASS_LEFT_TIP.y }
+          const pointerAngle = normalizeAngle(radiansToDegrees(Math.atan2(point.y - leftTip.y, point.x - leftTip.x)))
+          const nextDrag: DragState = {
+            kind: 'compass-rotate',
+            elementId: hit.id,
+            center: leftTip,
+            angleOffset: signedAngleDelta(hit.endAngle, pointerAngle),
+            original: hit,
+          }
+          dragRef.current = nextDrag
+          setDrag(nextDrag)
+          return
+        }
         const nextDrag: DragState = { kind: 'move', elementId: hit.id, start: point, original: hit }
         dragRef.current = nextDrag
         setDrag(nextDrag)
@@ -1232,6 +1539,22 @@ export function WhiteboardPage() {
           : { kind: 'move', elementId: hit.id, start: point, original: hit }
       dragRef.current = nextDrag
       setDrag(nextDrag)
+      return
+    }
+    if (tool === 'dot') {
+      const dotStroke = createPenElement(
+        [
+          { x: point.x, y: point.y },
+          { x: point.x, y: point.y },
+        ],
+        getNextZIndex(elements),
+        {
+          stroke: penColor,
+          strokeWidth: penStrokeWidth,
+        },
+      )
+      commitElements([...elements, dotStroke])
+      setSelectedElementId(dotStroke.id)
       return
     }
     if (tool === 'pen') return setDraft({ type: 'pen', rawPoints: [point], points: [point] })
@@ -1354,6 +1677,7 @@ export function WhiteboardPage() {
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const samples = eventToWorldPoints(event)
     const point = samples[samples.length - 1]
+    setPointerWorld(point)
     const activeDrag = dragRef.current
     if (tool === 'eraser-stroke' || draft?.type === 'eraser') {
       setEraserPointer(point)
@@ -1405,7 +1729,12 @@ export function WhiteboardPage() {
     if (activeDrag?.kind === 'canvas') {
       const dx = (event.clientX - activeDrag.start.x) / viewport.zoom
       const dy = (event.clientY - activeDrag.start.y) / viewport.zoom
-      return setViewport((prev) => ({ ...prev, x: activeDrag.origin.x - dx, y: activeDrag.origin.y - dy }))
+      const rect = canvasRef.current?.getBoundingClientRect()
+      return setViewport((prev) => {
+        if (!rect) return prev
+        const next = clampViewportPosition(activeDrag.origin.x - dx, activeDrag.origin.y - dy, prev.zoom, rect.width, rect.height)
+        return { ...prev, ...next }
+      })
     }
     if (activeDrag?.kind === 'move') {
       const dx = point.x - activeDrag.start.x
@@ -1435,6 +1764,24 @@ export function WhiteboardPage() {
         elementsRef.current = next
         return next
       })
+    }
+    if (activeDrag?.kind === 'compass-rotate') {
+      const pointerAngle = normalizeAngle(radiansToDegrees(Math.atan2(point.y - activeDrag.center.y, point.x - activeDrag.center.x)))
+      const nextEndAngle = normalizeAngle(pointerAngle + activeDrag.angleOffset)
+      setElements((prev) => {
+        const next = prev.map((element) =>
+          element.id === activeDrag.elementId && element.type === 'compass'
+            ? {
+                ...element,
+                endAngle: nextEndAngle,
+                updatedAt: new Date().toISOString(),
+              }
+            : element,
+        )
+        elementsRef.current = next
+        return next
+      })
+      return
     }
     if (activeDrag?.kind === 'rotate') {
       const currentAngle =
@@ -1580,6 +1927,7 @@ export function WhiteboardPage() {
     } else if (
       activeDrag?.kind === 'move' ||
       activeDrag?.kind === 'compass-radius' ||
+      activeDrag?.kind === 'compass-rotate' ||
       activeDrag?.kind === 'resize' ||
       activeDrag?.kind === 'rotate'
     ) {
@@ -1591,11 +1939,25 @@ export function WhiteboardPage() {
 
   const onPointerLeave = (event: React.PointerEvent<HTMLDivElement>) => {
     onPointerUp(event)
+    setPointerWorld(null)
     setEraserPointer(null)
   }
 
-  const zoomBy = (factor: number) => setViewport((prev) => ({ ...prev, zoom: Math.min(2.6, Math.max(0.2, prev.zoom * factor)) }))
-  const resetView = () => setViewport(boardCenter())
+  const zoomBy = (factor: number) =>
+    setViewport((prev) => {
+      const rect = canvasRef.current?.getBoundingClientRect()
+      const nextZoom = Math.min(2.6, Math.max(0.2, prev.zoom * factor))
+      if (!rect) return { ...prev, zoom: nextZoom }
+      const next = clampViewportPosition(prev.x, prev.y, nextZoom, rect.width, rect.height)
+      return { ...prev, ...next, zoom: nextZoom }
+    })
+  const resetView = () =>
+    setViewport(() => {
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (!rect) return boardCenter()
+      const next = clampViewportPosition(CANVAS_WIDTH / 2 - rect.width / 2, CANVAS_HEIGHT / 2 - rect.height / 2, 1, rect.width, rect.height)
+      return { ...next, zoom: 1 }
+    })
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
     if (event.ctrlKey || event.metaKey) { event.preventDefault(); zoomBy(event.deltaY > 0 ? 0.95 : 1.05) }
   }
@@ -1811,6 +2173,8 @@ export function WhiteboardPage() {
         name: 'New Model',
         modelId: '',
         providerId,
+        stream: false,
+        contextSize: 128000,
       },
     ])
   }
@@ -1833,8 +2197,91 @@ export function WhiteboardPage() {
     setSettingsOpen(false)
   }
 
+  const appendToolMessage = (event: AgentToolEvent) => {
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `tool-${event.id}`,
+        role: 'tool',
+        content: event.detail ? `${event.label}: ${event.detail}` : event.label,
+        createdAt: event.createdAt,
+        order: chatMessageOrderRef.current++,
+      },
+    ])
+  }
+
+  const nextChatOrder = () => chatMessageOrderRef.current++
+  const isCurrentChatSession = (sessionId: number) => chatSessionRef.current === sessionId
+
+  const applyToolAction = async (action?: AgentToolAction) => {
+    if (!action) return
+    if (action.type === 'move_mouse') {
+      setAgentCursor({
+        visible: true,
+        x: clamp(action.targetx, 0, CANVAS_WIDTH),
+        y: clamp(action.targety, 0, CANVAS_HEIGHT),
+      })
+      return
+    }
+    if (action.type === 'move_user_viewport') {
+      const rect = canvasRef.current?.getBoundingClientRect()
+      setViewport((prev) => {
+        if (!rect) return prev
+        const halfWidth = rect.width / Math.max(0.2, prev.zoom) / 2
+        const halfHeight = rect.height / Math.max(0.2, prev.zoom) / 2
+        return {
+          ...prev,
+          x: clamp(action.targetx - halfWidth, 0, Math.max(0, CANVAS_WIDTH - halfWidth * 2)),
+          y: clamp(action.targety - halfHeight, 0, Math.max(0, CANVAS_HEIGHT - halfHeight * 2)),
+        }
+      })
+      return
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, Math.max(0, action.time) * 1000))
+  }
+
+  const queueToolEvent = (event: AgentToolEvent, sessionId = chatSessionRef.current) => {
+    if (!isCurrentChatSession(sessionId)) return
+    appendToolMessage(event)
+    toolEventChainRef.current = toolEventChainRef.current
+      .then(() => {
+        if (!isCurrentChatSession(sessionId)) return
+        return applyToolAction(event.action)
+      })
+      .catch(() => undefined)
+  }
+
+  const queueToolEvents = async (events: AgentToolEvent[], sessionId = chatSessionRef.current) => {
+    for (const event of events) {
+      queueToolEvent(event, sessionId)
+    }
+    await toolEventChainRef.current
+  }
+
+  const buildConversationHistory = (contextSize: number, nextUserPrompt: string): AgentConversationMessage[] => {
+    const reserveTokens = 24000
+    const availableTokens = Math.max(4096, contextSize - reserveTokens - estimateTokenCount(nextUserPrompt))
+    let usedTokens = 0
+    const selected: AgentConversationMessage[] = []
+    for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
+      const message = chatMessages[index]
+      if (message.role === 'error' || message.role === 'thought') continue
+      if (!message.content.trim()) continue
+      const estimated = estimateTokenCount(message.content) + 12
+      if (selected.length > 0 && usedTokens + estimated > availableTokens) break
+      usedTokens += estimated
+      selected.push({
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+      })
+    }
+    return selected.reverse()
+  }
+
   const runAgent = async () => {
     if (!activeBoardId || !agentPrompt.trim()) return
+    const sessionId = chatSessionRef.current
     const prompt = agentPrompt.trim()
     const targetSettings = buildSelectedAISettings()
     if (!targetSettings) {
@@ -1852,8 +2299,10 @@ export function WhiteboardPage() {
       aiSettings.modelName !== targetSettings.modelName ||
       aiSettings.modelId !== targetSettings.modelId ||
       aiSettings.apiKey !== targetSettings.apiKey
+    const conversationHistory = buildConversationHistory(selectedChatModel?.contextSize ?? 128000, prompt)
 
     setAgentLoading(true)
+    const requestStartedAt = Date.now()
     setChatMessages((prev) => [
       ...prev,
       {
@@ -1861,59 +2310,210 @@ export function WhiteboardPage() {
         role: 'user',
         content: prompt,
         createdAt: new Date().toISOString(),
+        order: nextChatOrder(),
       },
     ])
     setAgentPrompt('')
     try {
       if (shouldSaveSettings) {
         await saveAISettingsAction(targetSettings)
+        if (!isCurrentChatSession(sessionId)) return
       }
       if (agentMode === 'chat') {
-        const result = await api.askAgent({
-          boardId: activeBoardId,
-          question: prompt,
-          selectedElementId: selectedElementId ?? undefined,
-          viewOrigin: { x: viewport.x, y: viewport.y },
-        })
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: createLocalId('msg'),
-            role: 'assistant',
-            content: result.answer,
-            createdAt: new Date().toISOString(),
-          },
-        ])
+        if (selectedChatModel?.stream) {
+          const thoughtMessageId = createLocalId('msg')
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: thoughtMessageId,
+              role: 'thought',
+              content: '',
+              createdAt: new Date().toISOString(),
+              order: nextChatOrder(),
+              status: 'thinking',
+            },
+          ])
+          const assistantMessageId = createLocalId('msg')
+          let assistantCreated = false
+          const result = await api.askAgentStream(
+            {
+              boardId: activeBoardId,
+              question: prompt,
+              selectedElementId: selectedElementId ?? undefined,
+              viewOrigin: { x: viewport.x, y: viewport.y },
+              viewBounds: visibleWorldRect,
+              screenshotDataUrl: undefined,
+              history: conversationHistory,
+            },
+            {
+              onTool: (event) => {
+                if (!isCurrentChatSession(sessionId)) return
+                queueToolEvent(event, sessionId)
+              },
+              onThoughtComplete: (thoughtSeconds) => {
+                if (!isCurrentChatSession(sessionId)) return
+                setChatMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === thoughtMessageId
+                      ? { ...message, content: `Thought for ${thoughtSeconds.toFixed(1)}s`, status: 'done' }
+                      : message,
+                  ),
+                )
+              },
+              onChunk: (chunk) => {
+                if (!chunk) return
+                if (!isCurrentChatSession(sessionId)) return
+                setChatMessages((prev) => {
+                  if (!assistantCreated) {
+                    assistantCreated = true
+                    return [
+                      ...prev,
+                      {
+                        id: assistantMessageId,
+                        role: 'assistant',
+                        content: chunk,
+                        createdAt: new Date().toISOString(),
+                        order: nextChatOrder(),
+                        status: 'done',
+                      },
+                    ]
+                  }
+                  return prev.map((message) =>
+                    message.id === assistantMessageId
+                      ? {
+                          ...message,
+                          content: `${message.content}${chunk}`,
+                          status: 'done',
+                        }
+                      : message,
+                  )
+                })
+              },
+            },
+          )
+          if (!isCurrentChatSession(sessionId)) return
+          if (!result.answer.trim()) {
+            setChatMessages((prev) =>
+              assistantCreated
+                ? prev.map((message) =>
+                    message.id === assistantMessageId
+                      ? { ...message, content: 'AI provider returned an empty response.', status: 'done' }
+                      : message,
+                  )
+                : [
+                    ...prev,
+                    {
+                      id: assistantMessageId,
+                      role: 'assistant',
+                      content: 'AI provider returned an empty response.',
+                      createdAt: new Date().toISOString(),
+                      order: nextChatOrder(),
+                      status: 'done',
+                    },
+                  ],
+            )
+          }
+        } else {
+          const thoughtMessageId = createLocalId('msg')
+          const assistantMessageId = createLocalId('msg')
+          const result = await api.askAgent({
+            boardId: activeBoardId,
+            question: prompt,
+            selectedElementId: selectedElementId ?? undefined,
+            viewOrigin: { x: viewport.x, y: viewport.y },
+            viewBounds: visibleWorldRect,
+            screenshotDataUrl: undefined,
+            history: conversationHistory,
+          })
+          if (!isCurrentChatSession(sessionId)) return
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: thoughtMessageId,
+              role: 'thought',
+              content: `Thought for ${(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000)).toFixed(1)}s`,
+              createdAt: new Date().toISOString(),
+              order: nextChatOrder(),
+              status: 'done',
+            },
+          ])
+          await queueToolEvents(result.toolEvents, sessionId)
+          if (!isCurrentChatSession(sessionId)) return
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: assistantMessageId,
+              role: 'assistant',
+              content: result.answer,
+              createdAt: new Date().toISOString(),
+              order: nextChatOrder(),
+              status: 'done',
+            },
+          ])
+        }
       } else {
         const result: AgentBuildResponse = await api.buildWithAgent({
           boardId: activeBoardId,
           prompt,
           selectedElementId: selectedElementId ?? undefined,
           viewOrigin: { x: viewport.x, y: viewport.y },
+          viewBounds: visibleWorldRect,
+          screenshotDataUrl: undefined,
+          history: conversationHistory,
         })
+        if (!isCurrentChatSession(sessionId)) return
         commitElements(result.elements)
+        if (result.boardUpdatedAt) {
+          syncBoardVersion(result.boardUpdatedAt)
+          setBoards((prev) =>
+            prev.map((board) =>
+              board.id === activeBoardId
+                ? { ...board, elements: result.elements, updatedAt: result.boardUpdatedAt as string }
+                : board,
+            ),
+          )
+        }
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: createLocalId('msg'),
+            role: 'thought',
+            content: `Thought for ${(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000)).toFixed(1)}s`,
+            createdAt: new Date().toISOString(),
+            order: nextChatOrder(),
+            status: 'done',
+          },
+        ])
+        await queueToolEvents(result.toolEvents, sessionId)
+        if (!isCurrentChatSession(sessionId)) return
         setChatMessages((prev) => [
           ...prev,
           {
             id: createLocalId('msg'),
             role: 'assistant',
-            content: `${result.message}\n\nApplied ${result.operations.length} operations.`,
+            content: result.message,
             createdAt: new Date().toISOString(),
+            order: nextChatOrder(),
+            status: 'done',
           },
         ])
       }
     } catch (error) {
+      if (!isCurrentChatSession(sessionId)) return
       setChatMessages((prev) => [
         ...prev,
         {
           id: createLocalId('msg'),
-          role: 'assistant',
+          role: 'error',
           content: error instanceof Error ? error.message : 'Agent request failed.',
           createdAt: new Date().toISOString(),
+          order: nextChatOrder(),
         },
       ])
     } finally {
-      setAgentLoading(false)
+      if (isCurrentChatSession(sessionId)) {
+        setAgentLoading(false)
+      }
     }
   }
 
@@ -1958,6 +2558,64 @@ export function WhiteboardPage() {
       ) ?? null,
     [elements, selectedElementId],
   )
+  const selectedTextElement = useMemo(
+    () =>
+      elements.find(
+        (element): element is Extract<BoardElement, { type: 'text' | 'markdown' }> =>
+          element.id === selectedElementId && (element.type === 'text' || element.type === 'markdown'),
+      ) ?? null,
+    [elements, selectedElementId],
+  )
+  const selectedGraphElement = useMemo(
+    () =>
+      elements.find(
+        (element): element is GraphElement => element.id === selectedElementId && element.type === 'graph',
+      ) ?? null,
+    [elements, selectedElementId],
+  )
+  const updateSelectedGraphElement = (patch: Partial<GraphElement>) => {
+    if (!selectedGraphElement) return
+    setElements((prev) => {
+      const now = new Date().toISOString()
+      const next = prev.map((element) =>
+        element.id === selectedGraphElement.id && element.type === 'graph'
+          ? {
+              ...element,
+              ...patch,
+              updatedAt: now,
+            }
+          : element,
+      )
+      elementsRef.current = next
+      return next
+    })
+  }
+  const commitSelectedGraphExpressions = () => {
+    if (!selectedGraphElement) return
+    const parsed = graphExpressionDrafts.map((entry) => entry.trim()).filter(Boolean)
+    const nextExpressions = parsed.length > 0 ? parsed : ['x']
+    updateSelectedGraphElement({ expressions: nextExpressions })
+    setGraphExpressionDrafts(nextExpressions)
+  }
+  const updateGraphExpressionDraftAt = (index: number, value: string) => {
+    setGraphExpressionDrafts((prev) => prev.map((entry, entryIndex) => (entryIndex === index ? value : entry)))
+  }
+  const addGraphExpressionDraft = () => {
+    setGraphExpressionDrafts((prev) => [...prev, ''])
+  }
+  const removeGraphExpressionDraftAt = (index: number) => {
+    setGraphExpressionDrafts((prev) => {
+      if (prev.length <= 1) return ['']
+      return prev.filter((_, entryIndex) => entryIndex !== index)
+    })
+  }
+  useEffect(() => {
+    if (!selectedGraphElement) {
+      setGraphExpressionDrafts([])
+      return
+    }
+    setGraphExpressionDrafts(normalizeGraphExpressions(selectedGraphElement))
+  }, [selectedGraphElement?.id, selectedGraphElement?.expressions])
   const visibleWorldRect = useMemo(() => {
     const rect = canvasRef.current?.getBoundingClientRect()
     const width = rect?.width ?? 0
@@ -2085,7 +2743,7 @@ export function WhiteboardPage() {
           <Sparkles size={18} />
           <div>
             <strong>Whiteboard Pro</strong>
-            <span>{statusMessage} · Assets {assets.length}</span>
+            <span>{statusMessage}</span>
           </div>
         </div>
         <div className="board-controls">
@@ -2220,7 +2878,7 @@ export function WhiteboardPage() {
                 </button>
               </>
             ) : null}
-            {tool === 'pen' ? (
+            {tool === 'pen' || tool === 'dot' ? (
               <>
                 <label className="eraser-size" title="Pen thickness">
                   <PenTool size={13} />
@@ -2243,6 +2901,29 @@ export function WhiteboardPage() {
                   />
                 </label>
               </>
+            ) : null}
+            {(tool === 'text' || (tool === 'select' && selectedTextElement)) ? (
+              <label className="eraser-size" title="Text size">
+                <Type size={13} />
+                <input
+                  type="range"
+                  min={1}
+                  max={50}
+                  step={1}
+                  value={selectedTextElement?.fontSize ?? 28}
+                  onChange={(event) => {
+                    const nextFontSize = Math.max(1, Math.min(50, Number(event.target.value) || 28))
+                    setElements((prev) =>
+                      prev.map((element) =>
+                        selectedTextElement && element.id === selectedTextElement.id && isEditableTextElement(element)
+                          ? { ...element, fontSize: nextFontSize, updatedAt: new Date().toISOString() }
+                          : element,
+                      ),
+                    )
+                  }}
+                />
+                <span>{selectedTextElement?.fontSize ?? 28}pt</span>
+              </label>
             ) : null}
             {tool === 'select' && selectedCompassElement ? (
               <>
@@ -2290,6 +2971,62 @@ export function WhiteboardPage() {
                 </label>
               </>
             ) : null}
+            {tool === 'select' && selectedGraphElement ? (
+              <>
+                <label className="graph-range-control" title="X min">
+                  <span>Xmin</span>
+                  <input
+                    type="number"
+                    value={selectedGraphElement.xMin}
+                    onChange={(event) => {
+                      const nextMin = Number(event.target.value)
+                      if (!Number.isFinite(nextMin)) return
+                      const [xMin, xMax] = sanitizeGraphRange(nextMin, selectedGraphElement.xMax, -8, 8)
+                      updateSelectedGraphElement({ xMin, xMax })
+                    }}
+                  />
+                </label>
+                <label className="graph-range-control" title="X max">
+                  <span>Xmax</span>
+                  <input
+                    type="number"
+                    value={selectedGraphElement.xMax}
+                    onChange={(event) => {
+                      const nextMax = Number(event.target.value)
+                      if (!Number.isFinite(nextMax)) return
+                      const [xMin, xMax] = sanitizeGraphRange(selectedGraphElement.xMin, nextMax, -8, 8)
+                      updateSelectedGraphElement({ xMin, xMax })
+                    }}
+                  />
+                </label>
+                <label className="graph-range-control" title="Y min">
+                  <span>Ymin</span>
+                  <input
+                    type="number"
+                    value={selectedGraphElement.yMin}
+                    onChange={(event) => {
+                      const nextMin = Number(event.target.value)
+                      if (!Number.isFinite(nextMin)) return
+                      const [yMin, yMax] = sanitizeGraphRange(nextMin, selectedGraphElement.yMax, -5, 5)
+                      updateSelectedGraphElement({ yMin, yMax })
+                    }}
+                  />
+                </label>
+                <label className="graph-range-control" title="Y max">
+                  <span>Ymax</span>
+                  <input
+                    type="number"
+                    value={selectedGraphElement.yMax}
+                    onChange={(event) => {
+                      const nextMax = Number(event.target.value)
+                      if (!Number.isFinite(nextMax)) return
+                      const [yMin, yMax] = sanitizeGraphRange(selectedGraphElement.yMin, nextMax, -5, 5)
+                      updateSelectedGraphElement({ yMin, yMax })
+                    }}
+                  />
+                </label>
+              </>
+            ) : null}
             {(tool === 'line' || tool === 'arrow' || tool === 'rectangle' || tool === 'ellipse') ? (
               <>
                 <label className="eraser-size" title="Shape thickness">
@@ -2323,6 +3060,11 @@ export function WhiteboardPage() {
                 </label>
               </>
             ) : null}
+            <span className="canvas-toolbar-meta">
+              {pointerWorld
+                ? `X ${Math.round(pointerWorld.x)}  Y ${Math.round(pointerWorld.y)}`
+                : 'X -  Y -'}
+            </span>
             <span className="canvas-toolbar-meta">
               Canvas {sizeFormatter.format(CANVAS_WIDTH)} x {sizeFormatter.format(CANVAS_HEIGHT)}
             </span>
@@ -2410,6 +3152,17 @@ export function WhiteboardPage() {
                 }}
               />
             ) : null}
+            {agentCursor.visible ? (
+              <div
+                className="agent-cursor-overlay"
+                style={{
+                  left: (agentCursor.x - viewport.x) * viewport.zoom,
+                  top: (agentCursor.y - viewport.y) * viewport.zoom,
+                }}
+              >
+                <img src={agentCursorSvg} alt="" draggable={false} />
+              </div>
+            ) : null}
             <canvas className="pen-layer" ref={penCanvasRef} />
             <div
               className="canvas-surface"
@@ -2423,6 +3176,10 @@ export function WhiteboardPage() {
               {domElements.map((element) => {
                 const selected = element.id === selectedElementId
                 const visuallySelected = selected && element.type !== 'compass'
+                const graphInlineEditorHeight =
+                  selected && tool === 'select' && element.type === 'graph'
+                    ? getGraphInlineEditorHeight(graphExpressionDrafts.length)
+                    : 0
                 const interactiveInSelectMode =
                   tool === 'select' &&
                   !drag &&
@@ -2431,9 +3188,10 @@ export function WhiteboardPage() {
                       element.type === 'video' ||
                       element.type === 'file' ||
                       element.type === 'code' ||
-                      element.type === 'monaco')) ||
-                    element.type === 'text' ||
-                    element.type === 'markdown' ||
+                      element.type === 'monaco' ||
+                      element.type === 'text' ||
+                      element.type === 'markdown' ||
+                      element.type === 'graph')) ||
                     editingTextId === element.id)
                 return (
                   <div
@@ -2456,10 +3214,12 @@ export function WhiteboardPage() {
                       height:
                         element.type === 'pen'
                           ? CANVAS_HEIGHT
-                          : element.height,
+                          : element.type === 'graph'
+                            ? element.height + graphInlineEditorHeight
+                            : element.height,
                       zIndex: getRenderZIndex(element, maxElementZIndex),
                       overflow:
-                        element.type === 'rectangle' || element.type === 'ellipse' || element.type === 'compass'
+                        element.type === 'rectangle' || element.type === 'ellipse' || element.type === 'compass' || element.type === 'graph'
                           ? 'visible'
                           : undefined,
                       background:
@@ -2708,11 +3468,109 @@ export function WhiteboardPage() {
                       </svg>
                     ) : null}
                     {element.type === 'graph' ? (
-                      <div className="graph">
-                        <svg width={element.width} height={element.height}>
-                          <line x1="0" y1={element.height / 2} x2={element.width} y2={element.height / 2} stroke="#122028" />
-                          <line x1={element.width / 2} y1="0" x2={element.width / 2} y2={element.height} stroke="#122028" />
-                        </svg>
+                      <div className="graph" onPointerDown={(event) => selected && event.stopPropagation()}>
+                        {(() => {
+                          const isInlineEditorOpen = selected && tool === 'select'
+                          const editorRowCount = Math.max(1, graphExpressionDrafts.length)
+                          const inlineEditorHeight = isInlineEditorOpen ? getGraphInlineEditorHeight(editorRowCount) : 0
+                          const plotHeight = Math.max(72, Math.floor(element.height))
+                          const [xMin, xMax] = sanitizeGraphRange(element.xMin, element.xMax, -8, 8)
+                          const [yMin, yMax] = sanitizeGraphRange(element.yMin, element.yMax, -5, 5)
+                          const traces = normalizeGraphExpressions(element)
+                            .map((expression, index) => buildGraphTrace(element, expression, index))
+                            .filter((trace): trace is PlotlyData => trace !== null)
+                          const layout: Partial<PlotlyLayout> = {
+                            width: Math.max(1, Math.floor(element.width)),
+                            height: plotHeight,
+                            margin: { l: 34, r: 10, t: 10, b: 28 },
+                            paper_bgcolor: 'rgba(255,255,255,0)',
+                            plot_bgcolor: 'rgba(255,255,255,0.68)',
+                            xaxis: {
+                              range: [xMin, xMax],
+                              zeroline: true,
+                              zerolinecolor: '#0f2029',
+                              zerolinewidth: 1.4,
+                              showgrid: true,
+                              gridcolor: '#d7dee7',
+                              gridwidth: 1,
+                              fixedrange: true,
+                              tickfont: { size: 10, color: '#23313a' },
+                            },
+                            yaxis: {
+                              range: [yMin, yMax],
+                              zeroline: true,
+                              zerolinecolor: '#0f2029',
+                              zerolinewidth: 1.4,
+                              showgrid: true,
+                              gridcolor: '#d7dee7',
+                              gridwidth: 1,
+                              fixedrange: true,
+                              tickfont: { size: 10, color: '#23313a' },
+                            },
+                            showlegend: traces.length > 1,
+                            legend: {
+                              x: 0.01,
+                              y: 0.99,
+                              bgcolor: 'rgba(255,255,255,0.72)',
+                              bordercolor: '#d3dbe5',
+                              borderwidth: 1,
+                              font: { size: 10, color: '#20303a' },
+                            },
+                          }
+                          return (
+                            <>
+                              <div className="graph-plot">
+                                <Plot
+                                  data={traces}
+                                  layout={layout}
+                                  config={{
+                                    staticPlot: true,
+                                    displayModeBar: false,
+                                    responsive: false,
+                                  }}
+                                  style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
+                                />
+                              </div>
+                              {isInlineEditorOpen ? (
+                                <div className="graph-inline-editor" style={{ minHeight: inlineEditorHeight }}>
+                                  <div className="graph-inline-list">
+                                    {graphExpressionDrafts.map((expression, index) => (
+                                      <div key={`graph-expr-${index}`} className="graph-inline-row">
+                                        <input
+                                          value={expression}
+                                          onChange={(event) => updateGraphExpressionDraftAt(index, event.target.value)}
+                                          onBlur={commitSelectedGraphExpressions}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter') {
+                                              event.preventDefault()
+                                              commitSelectedGraphExpressions()
+                                            }
+                                            if (event.key === 'Escape') {
+                                              setGraphExpressionDrafts(normalizeGraphExpressions(element))
+                                            }
+                                          }}
+                                          placeholder={`f${index + 1}(x)`}
+                                        />
+                                        <button
+                                          type="button"
+                                          className="graph-inline-remove"
+                                          onClick={() => removeGraphExpressionDraftAt(index)}
+                                          disabled={graphExpressionDrafts.length <= 1}
+                                          title="Remove formula"
+                                        >
+                                          <CircleX size={12} />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <button type="button" className="graph-inline-add" onClick={addGraphExpressionDraft}>
+                                    <Plus size={12} /> Add formula
+                                  </button>
+                                </div>
+                              ) : null}
+                            </>
+                          )
+                        })()}
                       </div>
                     ) : null}
                     {element.type === 'latex' ? (
@@ -2941,24 +3799,55 @@ export function WhiteboardPage() {
           <aside className="ai-panel open">
           <div className="ai-head">
             <h2>AI Chat</h2>
-            <div className="mode-toggle">
-              <button className={agentMode === 'chat' ? 'active' : ''} onClick={() => setAgentMode('chat')}>
-                <MessageSquare size={14} />
-                Ask
-              </button>
-              <button className={agentMode === 'build' ? 'active' : ''} onClick={() => setAgentMode('build')}>
-                <Sparkles size={14} />
-                Build
-              </button>
-            </div>
+            <button
+              type="button"
+              className="new-chat-btn"
+              onClick={() => {
+                chatSessionRef.current += 1
+                setChatMessages([])
+                chatMessageOrderRef.current = 0
+                setAgentCursor({ visible: false, x: 0, y: 0 })
+                setAgentPrompt('')
+                setAgentLoading(false)
+              }}
+            >
+              <Plus size={14} />
+              New chat
+            </button>
           </div>
 
           <div className="chat-window" ref={chatWindowRef}>
-            {chatMessages.length === 0 ? <div className="chat-empty">Start a conversation by sending your first message.</div> : null}
-            {chatMessages.map((message) => (
+            {orderedChatMessages.length === 0 ? <div className="chat-empty">Start by asking agent to build something...</div> : null}
+            {orderedChatMessages.map((message) => (
               <div key={message.id} className={`chat-message ${message.role}`}>
-                <strong>{message.role === 'user' ? 'You' : 'AI'}</strong>
-                <p>{message.content}</p>
+                {message.role === 'user' ? (
+                  <p>{message.content}</p>
+                ) : message.role === 'error' ? (
+                  <div className="chat-error-card">
+                    <CircleX size={16} />
+                    <p>{message.content}</p>
+                  </div>
+                ) : message.role === 'thought' ? (
+                  message.status === 'thinking' ? (
+                    <div className="chat-thinking">
+                      <span>Thinking</span>
+                      <div className="chat-thinking-shimmer" />
+                    </div>
+                  ) : (
+                    <div className="chat-thought-pill">{message.content}</div>
+                  )
+                ) : message.role === 'tool' ? (
+                  <div className="chat-tool-event">{message.content}</div>
+                ) : (
+                  <div className="chat-assistant-block">
+                    {message.content ? (
+                      <div
+                        className="chat-assistant-markdown markdown-box-content"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(message.content || ' ') }}
+                      />
+                    ) : null}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -2967,7 +3856,7 @@ export function WhiteboardPage() {
             <textarea
               value={agentPrompt}
               onChange={(event) => setAgentPrompt(event.target.value)}
-              placeholder={agentMode === 'chat' ? 'Describe what you want to ask...' : 'Describe what to add, update, or delete...'}
+              placeholder={agentMode === 'chat' ? 'Describe what you want to ask...' : 'Build, Edit and Delete...'}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                   event.preventDefault()
@@ -2978,9 +3867,6 @@ export function WhiteboardPage() {
 
             <div className="chat-compose-toolbar">
               <div className="chat-compose-left">
-                <button className="compose-tool-btn" type="button" aria-label="Add">
-                  <Plus size={14} />
-                </button>
                 <CustomDropdown
                   className="compose-mode-dropdown"
                   value={agentMode}
@@ -3000,20 +3886,9 @@ export function WhiteboardPage() {
                   }))}
                   placeholder="Model"
                 />
-                <button
-                  className="compose-tool-btn"
-                  type="button"
-                  onClick={() => {
-                    setSettingsSection('ai')
-                    setSettingsOpen(true)
-                  }}
-                  aria-label="Model settings"
-                >
-                  <SlidersHorizontal size={14} />
-                </button>
               </div>
               <button className="compose-send-btn" onClick={() => void runAgent()} disabled={agentLoading}>
-                <Send size={14} />
+                <Send size={16} />
               </button>
             </div>
           </div>
@@ -3164,6 +4039,34 @@ export function WhiteboardPage() {
                             }))}
                             placeholder="Provider"
                           />
+                          <input
+                            type="number"
+                            min={1024}
+                            step={1024}
+                            value={model.contextSize}
+                            onChange={(event) =>
+                              setModelPresets((prev) =>
+                                prev.map((item) =>
+                                  item.id === model.id
+                                    ? { ...item, contextSize: Math.max(1024, Number(event.target.value) || 128000) }
+                                    : item,
+                                ),
+                              )
+                            }
+                            placeholder="Context size"
+                          />
+                          <label className="ai-model-stream-toggle" title="Enable real-time streaming">
+                            <input
+                              type="checkbox"
+                              checked={model.stream}
+                              onChange={(event) =>
+                                setModelPresets((prev) =>
+                                  prev.map((item) => (item.id === model.id ? { ...item, stream: event.target.checked } : item)),
+                                )
+                              }
+                            />
+                            <span>Stream</span>
+                          </label>
                           <button
                             className="ai-config-remove-btn"
                             onClick={() => setModelPresets((prev) => prev.filter((item) => item.id !== model.id))}

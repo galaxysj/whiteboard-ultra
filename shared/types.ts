@@ -29,6 +29,13 @@ export interface Point {
   y: number
 }
 
+export interface Rect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface Board {
   id: string
   name: string
@@ -109,6 +116,7 @@ export interface GraphElement extends ElementBase {
   xMax: number
   yMin: number
   yMax: number
+  expressions: string[]
 }
 
 export interface LatexElement extends ElementBase {
@@ -169,10 +177,45 @@ export interface AgentAskRequest {
   question: string
   selectedElementId?: string
   viewOrigin?: Point
+  viewBounds?: Rect
+  screenshotDataUrl?: string
+  history?: AgentConversationMessage[]
+}
+
+export interface AgentToolEvent {
+  id: string
+  label: string
+  detail?: string
+  action?: AgentToolAction
+  createdAt: string
+}
+
+export type AgentToolAction =
+  | {
+      type: 'move_mouse'
+      targetx: number
+      targety: number
+    }
+  | {
+      type: 'move_user_viewport'
+      targetx: number
+      targety: number
+    }
+  | {
+      type: 'wait'
+      time: number
+    }
+
+export interface AgentConversationMessage {
+  role: 'user' | 'assistant' | 'tool'
+  content: string
+  createdAt: string
 }
 
 export interface AgentAskResponse {
   answer: string
+  toolEvents: AgentToolEvent[]
+  thoughtSeconds?: number
 }
 
 export interface BuildCreateOperation {
@@ -201,10 +244,16 @@ export interface AgentBuildRequest {
   prompt: string
   selectedElementId?: string
   viewOrigin?: Point
+  viewBounds?: Rect
+  screenshotDataUrl?: string
+  history?: AgentConversationMessage[]
 }
 
 export interface AgentBuildResponse {
   message: string
   operations: BuildOperation[]
   elements: BoardElement[]
+  toolEvents: AgentToolEvent[]
+  thoughtSeconds?: number
+  boardUpdatedAt?: string
 }
