@@ -1,0 +1,146 @@
+diff --git a/src/index.css b/src/index.css
+index 36f14f9..9ea4391 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -1117,16 +1117,57 @@ h3 {
+ }
+ 
+ .chat-thought-pill {
++  position: relative;
+   display: inline-flex;
+-  align-items: center;
++  flex-direction: column;
++  align-items: flex-start;
+   min-height: 24px;
+-  padding: 0 10px;
+-  border-radius: 999px;
++  padding: 4px 12px;
++  border-radius: 12px;
+   background: rgba(25, 44, 58, 0.06);
+   color: #4c5f6c;
+   font-size: 12px;
+   font-weight: 700;
+   width: fit-content;
++  overflow: hidden;
++}
++
++.chat-thought-pill.expanded {
++  width: 100%;
++}
++
++.chat-toggle-thought-btn {
++  background: none;
++  border: none;
++  padding: 0;
++  color: var(--theme);
++  cursor: pointer;
++  font-size: 11px;
++  font-weight: bold;
++  text-decoration: underline;
++  margin-left: 8px;
++}
++.chat-toggle-thought-btn:hover {
++  text-decoration: none;
++  opacity: 0.8;
++}
++
++.chat-thought-detail {
++  margin-top: 8px;
++  font-size: 11px;
++  font-weight: 500;
++  color: rgba(25, 44, 58, 0.7);
++  white-space: pre-wrap;
++  border-top: 1px dashed rgba(25, 44, 58, 0.2);
++  padding-top: 8px;
++  line-height: 1.4;
++  word-break: break-word;
++}
++
++.chat-thought-pill.thinking {
++  background: rgba(47, 116, 150, 0.08);
++  /* Slightly different blue tint while thinking */
++  min-width: 120px;
+ }
+ 
+ .chat-tool-event {
+@@ -1164,21 +1205,6 @@ h3 {
+   white-space: pre-wrap;
+ }
+ 
+-.chat-thinking {
+-  position: relative;
+-  width: 160px;
+-  height: 28px;
+-  border-radius: 999px;
+-  background: rgba(25, 44, 58, 0.08);
+-  overflow: hidden;
+-  display: inline-flex;
+-  align-items: center;
+-  padding: 0 12px;
+-  color: #465864;
+-  font-size: 12px;
+-  font-weight: 700;
+-}
+-
+ .chat-thinking-shimmer {
+   position: absolute;
+   inset: 0;
+@@ -1191,6 +1217,7 @@ h3 {
+   from {
+     transform: translateX(-100%);
+   }
++
+   to {
+     transform: translateX(100%);
+   }
+@@ -1570,7 +1597,7 @@ h3 {
+   padding: 20px;
+   display: grid;
+   grid-template-rows: auto minmax(0, 1fr);
+-  
++
+ }
+ 
+ .settings-content-head {
+@@ -1584,7 +1611,7 @@ h3 {
+ .settings-title {
+   margin: 0;
+   margin-bottom: 2px;
+-  font-size: 20px;  
++  font-size: 20px;
+ }
+ 
+ 
+@@ -1680,7 +1707,7 @@ h3 {
+   gap: 20px;
+ }
+ 
+-.ai-config-section + .ai-config-section {
++.ai-config-section+.ai-config-section {
+   margin-top: 8px;
+ }
+ 
+@@ -1737,7 +1764,7 @@ h3 {
+ 
+ .ai-model-row {
+   display: grid;
+-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 120px 92px auto;
++  grid-template-columns: minmax(0, 0.6fr) minmax(0, 1fr) 110px 96px 80px 104px auto;
+   gap: 6px;
+   align-items: center;
+ }
+@@ -1856,6 +1883,7 @@ h3 {
+ }
+ 
+ @media (max-width: 1380px) {
++
+   .workspace,
+   .workspace.ai-open,
+   .workspace.ai-closed {
+@@ -1943,4 +1971,4 @@ h3 {
+ 
+ .msg-action-btn:active {
+   transform: translateY(0);
+-}
++}
+\ No newline at end of file

@@ -1,0 +1,722 @@
+{
+  "model": "moonshotai/kimi-k2-instruct-0905",
+  "temperature": 0.2,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Whiteboard Ultra Build mode agent.\n\nRules:\n- Use tool calls to modify the board.\n- Use only these tool names when relevant: `capture_board`, `get_board`, `move_mouse`, `move_user_viewport`, `wait`, `draw_dot`, `draw_line`, `draw_arrow`, `draw_square`, `draw_circle`, `show_calculator`, `embed_link`, `write_text`, `write_md`, `write_latex`, `write_code`, `write_monaco`, `make_graph`, `add_ruler`, `add_protractor`, `move_element`, `delete_element`, `add_html_code`.\n- All coordinates must be absolute board coordinates.\n- Treat `startx` and `starty` as the element's top-left corner in absolute board space.\n- Use dedicated tools instead of generic substitutes.\n- Prefer precise sizes, thickness, colors and positions.\n- Never claim that you changed, deleted, moved, created, or updated anything unless the corresponding tool call actually succeeded.\n- If the user is asking a question in Build mode, answer the question directly and do not force tool calls.\n- If the user is clearly asking for board changes, actually call the relevant tools instead of only describing what you would do.\n- If no tool call was made, explicitly say that no board changes were applied.\n- Do not output custom JSON operation lists.\n- When done, provide a brief final text summary.\n- When adding element, add in the user's current viewport if possible, or near the center of the board if not.\n- \"compass\" is a tool to draw a circle with a line. not a earth compass.\n- Use `add_html_code` (NOT `embed_link`) when the user asks to embed raw HTML, a game, an interactive widget, a mini-app, or any custom HTML/CSS/JS code. `embed_link` is only for embedding external URLs in iframes."
+    },
+    {
+      "role": "user",
+      "content": "Board context: {\n  \"board\": {\n    \"id\": \"pdhixBvEEeN-ts11GXvmx\",\n    \"name\": \"Board 4\",\n    \"elementCount\": 5,\n    \"selectedElementId\": null,\n    \"viewOrigin\": {\n      \"x\": 15200,\n      \"y\": 15400\n    },\n    \"visibleRange\": {\n      \"startx\": 15200,\n      \"starty\": 15400,\n      \"endx\": 15200,\n      \"endy\": 15400,\n      \"width\": 0,\n      \"height\": 0\n    },\n    \"elements\": [\n      {\n        \"id\": \"CfRjKuxYHgZsAbcYzG0vc\",\n        \"type\": \"ellipse\",\n        \"position\": {\n          \"x\": 15150,\n          \"y\": 15350,\n          \"width\": 200,\n          \"height\": 200\n        }\n      },\n      {\n        \"id\": \"HMDeMSVf7KQ09WjpAbMp-\",\n        \"type\": \"text\",\n        \"position\": {\n          \"x\": 15240,\n          \"y\": 15360,\n          \"width\": 28,\n          \"height\": 24\n        }\n      },\n      {\n        \"id\": \"KN8GpL1iieVCzrlDp0Sv6\",\n        \"type\": \"line\",\n        \"position\": {\n          \"x\": 15250,\n          \"y\": 15360,\n          \"width\": 2,\n          \"height\": 90\n        }\n      },\n      {\n        \"id\": \"TKjN2KOi-F0tPuqldcBLp\",\n        \"type\": \"text\",\n        \"position\": {\n          \"x\": 15330,\n          \"y\": 15440,\n          \"width\": 28,\n          \"height\": 24\n        }\n      },\n      {\n        \"id\": \"CAlr5piMlSYTVppPAksJ3\",\n        \"type\": \"text\",\n        \"position\": {\n          \"x\": 15240,\n          \"y\": 15530,\n          \"width\": 28,\n          \"height\": 24\n        }\n      }\n    ]\n  }\n}\n\nConversation history:\n[user] make html clock\n\n[assistant] I’m currently in Ask mode, which means I can’t create or modify elements on the board. If you’d like me to build an HTML clock for you, please switch to Build mode and I’ll be happy to help.\n\nUser request: make html clock"
+    },
+    {
+      "role": "assistant",
+      "content": "I'll create an HTML clock for you. Let me add it to the board.",
+      "tool_calls": [
+        {
+          "id": "functions.add_html_code:0",
+          "type": "function",
+          "function": {
+            "name": "add_html_code",
+            "arguments": "{\"height\":300,\"htmlcode\":\"\\u003c!DOCTYPE html\\u003e\\n\\u003chtml\\u003e\\n\\u003chead\\u003e\\n\\u003cstyle\\u003e\\nbody {\\n  display: flex;\\n  justify-content: center;\\n  align-items: center;\\n  height: 100vh;\\n  margin: 0;\\n  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\\n  font-family: 'Arial', sans-serif;\\n}\\n\\n.clock-container {\\n  background: rgba(255, 255, 255, 0.1);\\n  backdrop-filter: blur(10px);\\n  border-radius: 20px;\\n  padding: 40px;\\n  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);\\n  border: 1px solid rgba(255, 255, 255, 0.2);\\n}\\n\\n.clock {\\n  font-size: 48px;\\n  color: white;\\n  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);\\n  font-weight: bold;\\n  letter-spacing: 2px;\\n}\\n\\n.date {\\n  font-size: 18px;\\n  color: rgba(255, 255, 255, 0.8);\\n  margin-top: 10px;\\n  text-align: center;\\n}\\n\\u003c/style\\u003e\\n\\u003c/head\\u003e\\n\\u003cbody\\u003e\\n\\u003cdiv class=\\\"clock-container\\\"\\u003e\\n  \\u003cdiv class=\\\"clock\\\" id=\\\"clock\\\"\\u003e\\u003c/div\\u003e\\n  \\u003cdiv class=\\\"date\\\" id=\\\"date\\\"\\u003e\\u003c/div\\u003e\\n\\u003c/div\\u003e\\n\\n\\u003cscript\\u003e\\nfunction updateClock() {\\n  const now = new Date();\\n  \\n  // Format time\\n  const hours = String(now.getHours()).padStart(2, '0');\\n  const minutes = String(now.getMinutes()).padStart(2, '0');\\n  const seconds = String(now.getSeconds()).padStart(2, '0');\\n  const timeString = `${hours}:${minutes}:${seconds}`;\\n  \\n  // Format date\\n  const options = { \\n    weekday: 'long', \\n    year: 'numeric', \\n    month: 'long', \\n    day: 'numeric' \\n  };\\n  const dateString = now.toLocaleDateString('en-US', options);\\n  \\n  // Update display\\n  document.getElementById('clock').textContent = timeString;\\n  document.getElementById('date').textContent = dateString;\\n}\\n\\n// Update immediately and then every second\\nupdateClock();\\nsetInterval(updateClock, 1000);\\n\\u003c/script\\u003e\\n\\u003c/body\\u003e\\n\\u003c/html\\u003e\",\"startx\":15200,\"starty\":15400,\"width\":400}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "functions.add_html_code:0",
+      "content": "{\"ok\":true,\"id\":\"DW0-6yy7_vXT4Cxe66qHS\"}"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "add_html_code",
+        "description": "Embed raw HTML/JS/CSS code using startx, starty, width, height, and htmlcode.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "htmlcode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "width",
+            "height",
+            "htmlcode"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "capture_board",
+        "description": "Capture the board currently visible to the user. Return Error: Vision not supported on the model when vision is unavailable.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_board",
+        "description": "Get all current board elements with explicit coordinates and properties.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "move_mouse",
+        "description": "Move the agent overlay mouse to targetx and targety in absolute board coordinates.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "targetx": {
+              "type": "number"
+            },
+            "targety": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "targetx",
+            "targety"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "move_user_viewport",
+        "description": "Move the user viewport so targetx and targety become the center of the visible area.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "targetx": {
+              "type": "number"
+            },
+            "targety": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "targetx",
+            "targety"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "wait",
+        "description": "Wait for time seconds before continuing.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "time": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "time"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "draw_dot",
+        "description": "Draw a dot using targetx, targety, color and thickness.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "targetx": {
+              "type": "number"
+            },
+            "targety": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            },
+            "thickness": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "targetx",
+            "targety"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "draw_line",
+        "description": "Draw a line with startx, starty, endx, endy, thickness and color.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "endx": {
+              "type": "number"
+            },
+            "endy": {
+              "type": "number"
+            },
+            "thickness": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "endx",
+            "endy"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "draw_arrow",
+        "description": "Draw an arrow with startx, starty, endx, endy, thickness and color.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "endx": {
+              "type": "number"
+            },
+            "endy": {
+              "type": "number"
+            },
+            "thickness": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "endx",
+            "endy"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "draw_square",
+        "description": "Draw a rectangle using startx, starty, width, height, thickness and color.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "thickness": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "width",
+            "height"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "draw_circle",
+        "description": "Draw an ellipse using startx, starty, width, height, thickness and color.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "thickness": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "width",
+            "height"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "show_calculator",
+        "description": "Insert an HTML calculator at targetx and targety.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "targetx": {
+              "type": "number"
+            },
+            "targety": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "targetx",
+            "targety"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "embed_link",
+        "description": "Embed a link using startx, starty, width, height and targetlink.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "targetlink": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "width",
+            "height",
+            "targetlink"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write_text",
+        "description": "Write plain text using startx, starty, width, height, text and optional size.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "text": {
+              "type": "string"
+            },
+            "size": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "width",
+            "height",
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write_md",
+        "description": "Write markdown using startx, starty, width, height and text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "width",
+            "height",
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write_latex",
+        "description": "Write a LaTeX formula using startx, starty, width, height and tex.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "tex": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "width",
+            "height",
+            "tex"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write_code",
+        "description": "Write a code block using startx, starty, width, height and code.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "code": {
+              "type": "string"
+            },
+            "language": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "width",
+            "height",
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write_monaco",
+        "description": "Write a monaco editor block using startx, starty, width, height and code.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "code": {
+              "type": "string"
+            },
+            "language": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "startx",
+            "starty",
+            "width",
+            "height",
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "make_graph",
+        "description": "Create a function graph using explicit min/max bounds, position, size and expression.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "xmin": {
+              "type": "number"
+            },
+            "xmax": {
+              "type": "number"
+            },
+            "ymin": {
+              "type": "number"
+            },
+            "ymax": {
+              "type": "number"
+            },
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "expression": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "xmin",
+            "xmax",
+            "ymin",
+            "ymax",
+            "startx",
+            "starty",
+            "width",
+            "height",
+            "expression"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_ruler",
+        "description": "Add one ruler using startx and starty.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "startx",
+            "starty"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_protractor",
+        "description": "Add one protractor using startx and starty.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "startx": {
+              "type": "number"
+            },
+            "starty": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "startx",
+            "starty"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "move_element",
+        "description": "Move an existing element using elementid, targetx and targety.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "elementid": {
+              "type": "string"
+            },
+            "targetx": {
+              "type": "number"
+            },
+            "targety": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "elementid",
+            "targetx",
+            "targety"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "delete_element",
+        "description": "Delete an element using elementid.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "elementid": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "elementid"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "tool_choice": "auto"
+}

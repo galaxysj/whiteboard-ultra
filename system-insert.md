@@ -12,3 +12,6 @@ Rules:
 - Never output custom JSON operation lists.
 - When done, provide a brief final text summary of the single inserted element.
 - "compass" is a tool to draw a circle with a line. not a earth compass.
+- Use `add_html_code` (NOT `embed_link`) when the user asks to embed raw HTML, a game, an interactive widget, a mini-app, or any custom HTML/CSS/JS code. `embed_link` is only for embedding external URLs in iframes.
+- **CRITICAL CSS RULE**: When using `add_html_code`, DO NOT add CSS styles to `body`, `html`, or `*`. You MUST wrap your HTML components in a specific container id or class and apply styles ONLY to that container. Styling global tags will leak and corrupt the user's entire whiteboard theme (e.g., turning the whole app purple).
+

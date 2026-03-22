@@ -31,7 +31,7 @@ import type {
 } from '../shared/types.js'
 
 const app = express()
-const port = Number(process.env.PORT || 5173)
+const port = Number(process.env.PORT || 3001)
 const host = process.env.HOST || '0.0.0.0'
 const uploadsDir = getUploadsDir()
 const isProduction = process.env.NODE_ENV === 'production'
@@ -76,12 +76,12 @@ const assertAssetFileMatchesKind = (kind: Asset['kind'], file: Express.Multer.Fi
   if (kind === 'image') {
     if (extension === '.svg' || mimeType === 'image/svg+xml') {
       const error = new Error('SVG uploads are not allowed for image embeds.')
-      ;(error as Error & { status?: number }).status = 400
+        ; (error as Error & { status?: number }).status = 400
       throw error
     }
     if (!mimeType.startsWith('image/') && !IMAGE_EXTENSIONS.has(extension)) {
       const error = new Error('Only image files are allowed for image embeds.')
-      ;(error as Error & { status?: number }).status = 400
+        ; (error as Error & { status?: number }).status = 400
       throw error
     }
   }
@@ -89,7 +89,7 @@ const assertAssetFileMatchesKind = (kind: Asset['kind'], file: Express.Multer.Fi
   if (kind === 'video') {
     if (!mimeType.startsWith('video/') && !VIDEO_EXTENSIONS.has(extension)) {
       const error = new Error('Only video files are allowed for video embeds.')
-      ;(error as Error & { status?: number }).status = 400
+        ; (error as Error & { status?: number }).status = 400
       throw error
     }
   }
@@ -340,4 +340,4 @@ server.on('close', () => {
   console.log('Whiteboard Ultra server closed')
 })
 
-;(globalThis as typeof globalThis & { __whiteboardServer?: typeof server }).__whiteboardServer = server
+  ; (globalThis as typeof globalThis & { __whiteboardServer?: typeof server }).__whiteboardServer = server

@@ -893,6 +893,7 @@ type BuildToolName =
   | 'add_protractor'
   | 'move_element'
   | 'delete_element'
+  | 'add_html_code'
 
 type AskToolName =
   | 'capture_board'
@@ -959,7 +960,8 @@ const readBuildToolName = (value: unknown): BuildToolName | null => {
     value === 'add_ruler' ||
     value === 'add_protractor' ||
     value === 'move_element' ||
-    value === 'delete_element'
+    value === 'delete_element' ||
+    value === 'add_html_code'
   ) {
     return value
   }
@@ -1289,6 +1291,21 @@ const executeBuildTool = async (
     return { ok: true, id }
   }
 
+  if (toolName === 'add_html_code') {
+    const created = createBuildElementOperation(runtime, {
+      type: 'html',
+      x: absoluteX(args.startx),
+      y: absoluteY(args.starty),
+      width: Math.max(24, asNumber(args.width, 400)),
+      height: Math.max(24, asNumber(args.height, 300)),
+      html: typeof args.htmlcode === 'string' ? args.htmlcode : '<div>Empty HTML</div>',
+      fill: 'transparent',
+      stroke: 'transparent',
+    } as Partial<BoardElement> & { type: BoardElement['type'] })
+    pushRuntimeToolEvent(runtime, 'Embedded custom HTML')
+    return { ok: true, id: created?.id ?? null }
+  }
+
   const id = typeof args.elementid === 'string' ? args.elementid : ''
   if (!id) return { ok: false, error: 'elementid is required.' }
   const exists = runtime.elements.some((element) => element.id === id)
@@ -1379,6 +1396,23 @@ const executeAskTool = async (
 }
 
 const buildToolsForResponses = [
+  {
+    type: 'function',
+    name: 'add_html_code',
+    description: 'Embed raw HTML/JS/CSS code using startx, starty, width, height, and htmlcode.',
+    parameters: {
+      type: 'object',
+      properties: {
+        startx: { type: 'number' },
+        starty: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        htmlcode: { type: 'string' },
+      },
+      required: ['startx', 'starty', 'width', 'height', 'htmlcode'],
+      additionalProperties: false,
+    },
+  },
   {
     type: 'function',
     name: 'capture_board',
@@ -2101,7 +2135,17 @@ const runCompatibleAskTools = async (
     messages.push({
       role: 'assistant',
       content: message.content ?? '',
-      tool_calls: toolCalls,
+      tool_calls: toolCalls.map((tc) => {
+        const record = tc as Record<string, unknown>
+        const fn = (record.function && typeof record.function === 'object' ? record.function : {}) as Record<string, unknown>
+        return {
+          ...record,
+          function: {
+            ...fn,
+            name: readAskToolName(fn.name) ? fn.name : 'wait',
+          },
+        }
+      }),
     })
 
     for (const toolCall of toolCalls) {
@@ -2314,22 +2358,32 @@ const runCompatibleToolCalls = async (
   ]
 
   for (let turn = 0; turn < 12; turn += 1) {
+    const requestBody = {
+        model: settings.modelId,
+        temperature: 0.2,
+        messages,
+        tools: buildToolsForCompletions,
+        tool_choice: 'auto',
+      }
+    const toolNames = buildToolsForCompletions.map((t) => t.function.name)
+    console.log('[DEBUG build tools] count:', toolNames.length, 'names:', toolNames.join(', '))
+    console.log('[DEBUG] add_html_code in tools?', toolNames.includes('add_html_code'))
+    // Dump debug request body
+    try {
+      fs.writeFileSync(path.join(process.cwd(), 'debug-request.json'), JSON.stringify(requestBody, null, 2))
+    } catch {}
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${settings.apiKey}`,
       },
-      body: JSON.stringify({
-        model: settings.modelId,
-        temperature: 0.2,
-        messages,
-        tools: buildToolsForCompletions,
-        tool_choice: 'auto',
-      }),
+      body: JSON.stringify(requestBody),
     })
     if (!response.ok) {
-      await throwRequestError('Compatible API', response)
+      const errorBody = await response.text()
+      console.error('[DEBUG] Compatible API error body:', errorBody)
+      throw new Error(`Compatible API request failed: ${response.status} ${response.statusText} - ${errorBody}`)
     }
     const payload = (await response.json()) as Record<string, unknown>
     const choices = Array.isArray(payload.choices) ? payload.choices : []
@@ -2350,7 +2404,17 @@ const runCompatibleToolCalls = async (
     messages.push({
       role: 'assistant',
       content: message.content ?? '',
-      tool_calls: toolCalls,
+      tool_calls: toolCalls.map((tc) => {
+        const record = tc as Record<string, unknown>
+        const fn = (record.function && typeof record.function === 'object' ? record.function : {}) as Record<string, unknown>
+        return {
+          ...record,
+          function: {
+            ...fn,
+            name: readBuildToolName(fn.name) ? fn.name : 'wait',
+          },
+        }
+      }),
     })
 
     for (const toolCall of toolCalls) {
@@ -2474,6 +2538,7 @@ export const runBuildWithToolCalls = async (
   const userPrompt = buildUserPrompt(board, selectedElementId, prompt, runtime.viewOrigin, viewBounds, history)
 
   let message = ''
+  console.log('[DEBUG runBuildWithToolCalls] providerType:', settings.providerType, 'modelId:', settings.modelId)
   if (settings.providerType === 'openai') {
     message = await runOpenAIToolCalls(settings, runtime, userPrompt, systemPrompt)
   } else if (settings.providerType === 'compatible') {

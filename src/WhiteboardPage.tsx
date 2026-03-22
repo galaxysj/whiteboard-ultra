@@ -115,6 +115,7 @@ type ChatMessage = {
   createdAt: string
   order: number
   status?: 'thinking' | 'done'
+  detail?: string
 }
 type ProviderPreset = {
   id: string
@@ -130,6 +131,7 @@ type ModelPreset = {
   modelId: string
   providerId: string
   stream: boolean
+  reasoning: boolean
   contextSize: string
 }
 type DropdownOption = {
@@ -1198,14 +1200,6 @@ const getElementSelectionBounds = (element: BoardElement) => {
     height: Math.max(...ys) - Math.min(...ys),
   }
 }
-const rectsIntersect = (
-  a: { x: number; y: number; width: number; height: number },
-  b: { x: number; y: number; width: number; height: number },
-) =>
-  a.x <= b.x + b.width &&
-  a.x + a.width >= b.x &&
-  a.y <= b.y + b.height &&
-  a.y + a.height >= b.y
 const rectContains = (
   container: { x: number; y: number; width: number; height: number },
   item: { x: number; y: number; width: number; height: number },
@@ -1292,6 +1286,8 @@ export function WhiteboardPage() {
   const [agentMode, setAgentMode] = useState<AgentMode>('chat')
   const [agentPrompt, setAgentPrompt] = useState('')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [expandedThoughts, setExpandedThoughts] = useState<Record<string, boolean>>({})
+  const toggleThought = (id: string) => setExpandedThoughts(prev => ({ ...prev, [id]: !prev[id] }))
   const [agentLoading, setAgentLoading] = useState(false)
   const [aiSettings, setAiSettings] = useState<AIProviderSettings>(defaultAISettings)
   const [providerPresets, setProviderPresets] = useState<ProviderPreset[]>(() => {
@@ -1322,6 +1318,8 @@ export function WhiteboardPage() {
   const [agentCursor, setAgentCursor] = useState<AgentCursorState>({ visible: false, x: 0, y: 0 })
   const [inlineAgent, setInlineAgent] = useState<InlineAgentComposerState | null>(null)
   const [toolbarTooltip, setToolbarTooltip] = useState<ToolbarTooltipState | null>(null)
+  const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null)
+  const [thinkingDurationSeconds, setThinkingDurationSeconds] = useState(0)
   const chatMessageOrderRef = useRef(0)
 
   const activeBoard = useMemo(
@@ -1426,18 +1424,6 @@ export function WhiteboardPage() {
     return current
   }
 
-  const duplicateElementAt = (element: BoardElement, target: Point) => {
-    const cloned = cloneElementDeep(element)
-    const moved = translateElement(cloned, target.x - element.x, target.y - element.y)
-    const now = new Date().toISOString()
-    return {
-      ...moved,
-      id: createLocalId(element.type),
-      zIndex: getNextZIndex(elementsRef.current),
-      createdAt: now,
-      updatedAt: now,
-    } satisfies BoardElement
-  }
 
   const syncBoardVersion = (updatedAt: string) => {
     boardUpdatedAtRef.current = updatedAt
@@ -1522,22 +1508,79 @@ export function WhiteboardPage() {
         setElements(board.elements)
         syncBoardVersion(board.updatedAt)
         setAiSettings(settings)
-        setProviderPresets((prev) =>
-          prev.map((provider) =>
-            provider.providerType === settings.providerType
-              ? {
-                ...provider,
-                apiKey: provider.apiKey || settings.apiKey,
-                baseUrl: settings.providerType === 'compatible' ? settings.baseUrl || provider.baseUrl : provider.baseUrl,
-              }
-              : provider,
-          ),
-        )
-        setSelectedChatModelId((prev) => {
-          if (prev && modelPresets.some((item) => item.id === prev)) return prev
-          const matched = modelPresets.find((item) => item.modelId === settings.modelId)
-          return matched?.id ?? modelPresets[0]?.id ?? ''
+
+        // Robust merge with Deduplication
+        setProviderPresets((prevProviders) => {
+          // Filter out existing duplicates in provider list
+          const seenProviderTypes = new Set<string>()
+          const filteredProviders = prevProviders.filter(p => {
+            if (seenProviderTypes.has(p.providerType)) return false
+            seenProviderTypes.add(p.providerType)
+            return true
+          })
+
+          const matchingProvider = filteredProviders.find((p) => p.providerType === settings.providerType)
+          const nextProviderId = matchingProvider ? matchingProvider.id : (settings.providerType ? `provider-${settings.providerType}` : 'default-provider')
+          
+          let nextProviders = filteredProviders
+          if (!matchingProvider && settings.providerType) {
+            nextProviders = [
+              ...filteredProviders,
+              {
+                id: nextProviderId,
+                name: settings.providerName || settings.providerType,
+                providerType: settings.providerType,
+                baseUrl: settings.baseUrl || '',
+                apiKey: settings.apiKey,
+              },
+            ]
+          } else if (matchingProvider && settings.apiKey && !matchingProvider.apiKey) {
+            nextProviders = filteredProviders.map((p) =>
+              p.id === matchingProvider.id ? { ...p, apiKey: settings.apiKey } : p
+            )
+          }
+
+          // Then sync models based on this provider
+          setModelPresets((prevModels) => {
+            // Deduplicate models by BOTH internal id (React key) and modelId
+            const seenIds = new Set<string>()
+            const seenModelIds = new Set<string>()
+            const filteredModels = prevModels.filter(m => {
+              if (seenIds.has(m.id)) return false
+              if (seenModelIds.has(m.modelId)) return false
+              seenIds.add(m.id)
+              seenModelIds.add(m.modelId)
+              return true
+            })
+
+            const matchingModel = filteredModels.find((m) => m.modelId === settings.modelId)
+            const nextModelId = matchingModel ? matchingModel.id : (settings.modelId ? `model-${settings.modelId}` : 'default-model')
+            
+            let finalModels = filteredModels
+            if (!matchingModel && settings.modelId) {
+              finalModels = [
+                ...filteredModels,
+                {
+                  id: nextModelId,
+                  name: settings.modelName || settings.modelId,
+                  modelId: settings.modelId,
+                  providerId: nextProviderId,
+                  stream: true,
+                  reasoning: false,
+                  contextSize: '128000',
+                },
+              ]
+            }
+
+            if (settings.modelId) {
+              setSelectedChatModelId(nextModelId)
+            }
+            return finalModels
+          })
+          
+          return nextProviders
         })
+        
         setAssets(await api.listAssets(board.id))
         setStatusMessage('Workspace ready')
       } catch (error) {
@@ -1622,6 +1665,14 @@ export function WhiteboardPage() {
   }, [inlineAgent])
 
   useEffect(() => {
+    if (thinkingStartTime == null) return
+    const id = setInterval(() => {
+      setThinkingDurationSeconds(Math.floor((Date.now() - thinkingStartTime) / 1000))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [thinkingStartTime])
+
+  useEffect(() => {
     const node = chatWindowRef.current
     if (!node) return
     node.scrollTop = node.scrollHeight
@@ -1629,7 +1680,10 @@ export function WhiteboardPage() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const isTyping = isTypingTarget(event.target) || editingTextIdRef.current != null || (window.getSelection()?.toString().length ?? 0) > 0
+      const target = event.target as HTMLElement | null
+      const isInput = isTypingTarget(target) || editingTextIdRef.current != null
+      const hasTextSelection = (window.getSelection()?.toString().length ?? 0) > 0
+      const isTyping = isInput || hasTextSelection
       const key = event.key.toLowerCase()
 
       if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && key === 's') {
@@ -1749,17 +1803,19 @@ export function WhiteboardPage() {
         return
       }
 
-      if (event.key === 'Delete') {
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (isInput) return
         const selectedIds = selectedElementIdsRef.current
         if (selectedIds.length === 0) return
         event.preventDefault()
         commitElements(elementsRef.current.filter((item) => !selectedIds.includes(item.id)))
         setSelectedElementIds([])
         setStatusMessage(`Deleted ${selectedIds.length} elements`)
+        return
       }
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [inlineAgent, viewport.x, viewport.y, viewport.zoom])
 
   useEffect(() => {
@@ -2694,9 +2750,10 @@ export function WhiteboardPage() {
         id: createLocalId('model'),
         name: 'New Model',
         modelId: '',
-        providerId,
-        stream: false,
-        contextSize: String(DEFAULT_CONTEXT_SIZE),
+        providerId: providerPresets[0]?.id || '',
+        stream: true,
+        reasoning: true,
+        contextSize: '128000',
       },
     ])
   }
@@ -2759,7 +2816,9 @@ export function WhiteboardPage() {
       })
       return
     }
-    await new Promise((resolve) => window.setTimeout(resolve, Math.max(0, action.time) * 1000))
+    if (action.type === 'wait') {
+      await new Promise((resolve) => window.setTimeout(resolve, Math.max(0, action.time) * 1000))
+    }
   }
 
   const queueToolEvent = (
@@ -2798,7 +2857,7 @@ export function WhiteboardPage() {
     const selected: AgentConversationMessage[] = []
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index]
-      if (message.role === 'error' || message.role === 'thought') continue
+      if (message.role === 'error' || message.role === 'thought' || message.role === 'tool') continue
       if (!message.content.trim()) continue
       const estimated = estimateTokenCount(message.content) + 12
       if (selected.length > 0 && usedTokens + estimated > availableTokens) break
@@ -2911,6 +2970,14 @@ export function WhiteboardPage() {
     const prompt = (retryPrompt ?? agentPrompt).trim()
     if (!activeBoardId || !prompt) return
     const sessionId = chatSessionRef.current
+
+    // If retrying, reset the chat messages to the provided history first
+    if (retryHistory) {
+      setChatMessages(retryHistory)
+      // Sync the order ref to avoid large gaps or confusion
+      chatMessageOrderRef.current = Math.max(0, ...retryHistory.map(m => m.order)) + 1
+    }
+
     const targetSettings = buildSelectedAISettings()
     if (!targetSettings) {
       setStatusMessage('Select a valid model/provider pair in settings.')
@@ -2933,18 +3000,25 @@ export function WhiteboardPage() {
       retryHistory
     )
 
+    const thoughtMessageId = createLocalId('msg')
+    const assistantMessageId = createLocalId('msg')
+
     setAgentLoading(true)
     const requestStartedAt = Date.now()
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        id: createLocalId('msg'),
-        role: 'user',
-        content: prompt,
-        createdAt: new Date().toISOString(),
-        order: nextChatOrder(),
-      },
-    ])
+    const newUserMsg: ChatMessage = {
+      id: createLocalId('msg'),
+      role: 'user',
+      content: prompt,
+      createdAt: new Date().toISOString(),
+      order: nextChatOrder(),
+    }
+
+    setChatMessages((prev) => {
+      // If we just setChatMessages(retryHistory), React might not have flushed it yet.
+      // So if retryHistory is present, we use it directly as the base.
+      const base = retryHistory ?? prev
+      return [...base, newUserMsg]
+    })
     if (!retryHistory) {
       setAgentPrompt('')
     }
@@ -2955,7 +3029,6 @@ export function WhiteboardPage() {
       }
       if (agentMode === 'chat') {
         if (selectedChatModel?.stream) {
-          const thoughtMessageId = createLocalId('msg')
           setChatMessages((prev) => [
             ...prev,
             {
@@ -2967,8 +3040,12 @@ export function WhiteboardPage() {
               status: 'thinking',
             },
           ])
-          const assistantMessageId = createLocalId('msg')
+          setThinkingStartTime(Date.now())
+          setThinkingDurationSeconds(0)
           let assistantCreated = false
+          let rawStreamed = ''
+          let streamedThought = ''
+          let streamedContent = ''
           const result = await api.askAgentStream(
             {
               boardId: activeBoardId,
@@ -2986,10 +3063,11 @@ export function WhiteboardPage() {
               },
               onThoughtComplete: (thoughtSeconds) => {
                 if (!isCurrentChatSession(sessionId)) return
+                setThinkingStartTime(null)
                 setChatMessages((prev) =>
                   prev.map((message) =>
                     message.id === thoughtMessageId
-                      ? { ...message, content: `Thought for ${thoughtSeconds.toFixed(1)}s`, status: 'done' }
+                      ? { ...message, content: `Thought for ${Math.round(thoughtSeconds)}s`, status: 'done' }
                       : message,
                   ),
                 )
@@ -2997,30 +3075,50 @@ export function WhiteboardPage() {
               onChunk: (chunk) => {
                 if (!chunk) return
                 if (!isCurrentChatSession(sessionId)) return
-                setChatMessages((prev) => {
-                  if (!assistantCreated) {
-                    assistantCreated = true
-                    return [
-                      ...prev,
-                      {
-                        id: assistantMessageId,
-                        role: 'assistant',
-                        content: chunk,
-                        createdAt: new Date().toISOString(),
-                        order: nextChatOrder(),
-                        status: 'done',
-                      },
-                    ]
+
+                rawStreamed += chunk
+
+                const thinkStart = rawStreamed.indexOf('<think>')
+                if (thinkStart !== -1) {
+                  const thinkEnd = rawStreamed.indexOf('</think>')
+                  if (thinkEnd !== -1) {
+                    streamedThought = rawStreamed.substring(thinkStart + 7, thinkEnd).trim()
+                    streamedContent = rawStreamed.substring(0, thinkStart) + rawStreamed.substring(thinkEnd + 9)
+                  } else {
+                    streamedThought = rawStreamed.substring(thinkStart + 7).trim()
+                    streamedContent = rawStreamed.substring(0, thinkStart)
                   }
-                  return prev.map((message) =>
-                    message.id === assistantMessageId
-                      ? {
-                        ...message,
-                        content: `${message.content}${chunk}`,
-                        status: 'done',
-                      }
-                      : message,
-                  )
+                } else {
+                  streamedContent = rawStreamed
+                }
+
+                setChatMessages((prev) => {
+                  let updated = [...prev]
+                  if (streamedThought) {
+                    updated = updated.map((m) =>
+                      m.id === thoughtMessageId ? { ...m, detail: streamedThought } : m
+                    )
+                  }
+
+                  const existing = updated.find((m) => m.id === assistantMessageId)
+                  if (!existing && streamedContent.length > 0) {
+                    assistantCreated = true
+                    updated.push({
+                      id: assistantMessageId,
+                      role: 'assistant',
+                      content: streamedContent,
+                      createdAt: new Date().toISOString(),
+                      order: nextChatOrder(),
+                      status: 'done',
+                    })
+                  } else if (existing) {
+                    updated = updated.map((message) =>
+                      message.id === assistantMessageId
+                        ? { ...message, content: streamedContent }
+                        : message,
+                    )
+                  }
+                  return updated
                 })
               },
             },
@@ -3048,8 +3146,20 @@ export function WhiteboardPage() {
             )
           }
         } else {
-          const thoughtMessageId = createLocalId('msg')
-          const assistantMessageId = createLocalId('msg')
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: thoughtMessageId,
+              role: 'thought',
+              content: '',
+              createdAt: new Date().toISOString(),
+              order: nextChatOrder(),
+              status: 'thinking',
+            },
+          ])
+          setThinkingStartTime(Date.now())
+          setThinkingDurationSeconds(0)
+
           const result = await api.askAgent({
             boardId: activeBoardId,
             question: prompt,
@@ -3059,18 +3169,20 @@ export function WhiteboardPage() {
             screenshotDataUrl: undefined,
             history: conversationHistory,
           })
+
           if (!isCurrentChatSession(sessionId)) return
-          setChatMessages((prev) => [
-            ...prev,
-            {
-              id: thoughtMessageId,
-              role: 'thought',
-              content: `Thought for ${(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000)).toFixed(1)}s`,
-              createdAt: new Date().toISOString(),
-              order: nextChatOrder(),
-              status: 'done',
-            },
-          ])
+          setThinkingStartTime(null)
+          setChatMessages((prev) =>
+            prev.map((message) =>
+              message.id === thoughtMessageId
+                ? {
+                  ...message,
+                  content: `Thought for ${Math.round(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000))}s`,
+                  status: 'done',
+                }
+                : message,
+            ),
+          )
           await queueToolEvents(result.toolEvents, sessionId)
           if (!isCurrentChatSession(sessionId)) return
           setChatMessages((prev) => [
@@ -3086,6 +3198,20 @@ export function WhiteboardPage() {
           ])
         }
       } else {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: thoughtMessageId,
+            role: 'thought',
+            content: '',
+            createdAt: new Date().toISOString(),
+            order: nextChatOrder(),
+            status: 'thinking',
+          },
+        ])
+        setThinkingStartTime(Date.now())
+        setThinkingDurationSeconds(0)
+
         const result: AgentBuildResponse = await api.buildWithAgent({
           boardId: activeBoardId,
           prompt,
@@ -3095,7 +3221,9 @@ export function WhiteboardPage() {
           screenshotDataUrl: undefined,
           history: conversationHistory,
         })
+
         if (!isCurrentChatSession(sessionId)) return
+        setThinkingStartTime(null)
         commitElements(result.elements)
         if (result.boardUpdatedAt) {
           syncBoardVersion(result.boardUpdatedAt)
@@ -3107,23 +3235,23 @@ export function WhiteboardPage() {
             ),
           )
         }
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: createLocalId('msg'),
-            role: 'thought',
-            content: `Thought for ${(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000)).toFixed(1)}s`,
-            createdAt: new Date().toISOString(),
-            order: nextChatOrder(),
-            status: 'done',
-          },
-        ])
+        setChatMessages((prev) =>
+          prev.map((message) =>
+            message.id === thoughtMessageId
+              ? {
+                ...message,
+                content: `Thought for ${Math.round(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000))}s`,
+                status: 'done',
+              }
+              : message,
+          ),
+        )
         await queueToolEvents(result.toolEvents, sessionId)
         if (!isCurrentChatSession(sessionId)) return
         setChatMessages((prev) => [
           ...prev,
           {
-            id: createLocalId('msg'),
+            id: assistantMessageId,
             role: 'assistant',
             content: result.message,
             createdAt: new Date().toISOString(),
@@ -3134,6 +3262,12 @@ export function WhiteboardPage() {
       }
     } catch (error) {
       if (!isCurrentChatSession(sessionId)) return
+      setThinkingStartTime(null)
+      setChatMessages((prev) =>
+        prev.map((m) =>
+          m.id === thoughtMessageId ? { ...m, status: 'done' } : m
+        )
+      )
       setChatMessages((prev) => [
         ...prev,
         {
@@ -3147,6 +3281,7 @@ export function WhiteboardPage() {
     } finally {
       if (isCurrentChatSession(sessionId)) {
         setAgentLoading(false)
+        setThinkingStartTime(null)
       }
     }
   }
@@ -4219,20 +4354,21 @@ export function WhiteboardPage() {
                       ) : (
                         <div
                           className="html-block"
-                          dangerouslySetInnerHTML={{ __html: element.html }}
-                          onPointerDown={(event) => {
-                            if (!selected) return
-                            const target = event.target
-                            const interactiveTarget =
-                              target instanceof Element &&
-                              target.closest('button, input, textarea, select, a, [role="button"]') != null
-                            if (interactiveTarget) {
-                              event.stopPropagation()
-                            }
-                          }}
-                          style={{ width: '100%', height: '100%', overflow: 'auto', backgroundColor: 'white' }}
-                        />
+                          style={{ position: 'relative', width: '100%', height: '100%', backgroundColor: 'white', overflow: 'hidden' }}
+                        >
+                          <iframe
+                            srcDoc={element.html}
+                            sandbox="allow-scripts allow-forms allow-same-origin"
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              border: 'none',
+                              pointerEvents: selected ? 'auto' : 'none',
+                            }}
+                          />
+                        </div>
                       )
+
                     ) : null}
                     {(element.type === 'image' || element.type === 'video') && element.src ? (
                       element.type === 'image' ? <img src={element.src} alt={element.name} /> : <video src={element.src} controls />
@@ -4779,65 +4915,98 @@ export function WhiteboardPage() {
                 <div key={message.id} className={`chat-message ${message.role}`}>
                   {message.role === 'user' ? (
                     <p>{message.content}</p>
-                  ) : message.role === 'error' ? (
-                    <div className="chat-error-card">
-                      <CircleX size={16} />
-                      <p>{message.content}</p>
-                    </div>
-                  ) : message.role === 'thought' ? (
-                    message.status === 'thinking' ? (
-                      <div className="chat-thinking">
-                        <span>Thinking</span>
-                        <div className="chat-thinking-shimmer" />
-                      </div>
-                    ) : (
-                      <div className="chat-thought-pill">{message.content}</div>
-                    )
-                  ) : message.role === 'tool' ? (
-                    <div className="chat-tool-event">{message.content}</div>
                   ) : (
-                    <div className="chat-assistant-block">
-                      {message.content ? (
-                        <div
-                          className="chat-assistant-markdown markdown-box-content"
-                          dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(message.content || ' ') }}
-                        />
-                      ) : null}
-                      <div className="chat-message-actions">
-                        <button
-                          className="msg-action-btn"
-                          title="Copy text"
-                          onClick={() => {
-                            void navigator.clipboard.writeText(message.content)
-                            setStatusMessage('Copied to clipboard')
-                          }}
-                        >
-                          <Copy size={13} />
-                        </button>
-                        {message.id === (orderedChatMessages.filter(m => m.role === 'assistant' || m.role === 'assistant-thinking').slice(-1)[0]?.id) && (
+                    <>
+                      {message.role === 'error' ? (
+                        <div className="chat-error-card">
+                          <CircleX size={16} />
+                          <p>{message.content}</p>
+                        </div>
+                      ) : message.role === 'thought' ? (
+                        message.status === 'thinking' ? (
+                          <div className={`chat-thought-pill thinking ${expandedThoughts[message.id] ? 'expanded' : ''}`}>
+                            <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                              Thinking for {thinkingDurationSeconds}s
+                              {selectedChatModel?.reasoning && message.detail && (
+                                <button
+                                  className="chat-toggle-thought-btn"
+                                  onClick={() => toggleThought(message.id)}
+                                >
+                                  {expandedThoughts[message.id] ? 'Close' : 'Open'}
+                                </button>
+                              )}
+                            </span>
+                            {selectedChatModel?.reasoning && expandedThoughts[message.id] && (
+                              <div className="chat-thought-detail">
+                                {message.detail}
+                              </div>
+                            )}
+                            <div className="chat-thinking-shimmer" />
+                          </div>
+                        ) : (
+                          <div className={`chat-thought-pill ${expandedThoughts[message.id] ? 'expanded' : ''}`}>
+                            <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                              {message.content}
+                              {selectedChatModel?.reasoning && message.detail && (
+                                <button
+                                  className="chat-toggle-thought-btn"
+                                  onClick={() => toggleThought(message.id)}
+                                >
+                                  {expandedThoughts[message.id] ? 'Close' : 'Open'}
+                                </button>
+                              )}
+                            </span>
+                            {selectedChatModel?.reasoning && expandedThoughts[message.id] && (
+                              <div className="chat-thought-detail">
+                                {message.detail}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      ) : message.role === 'tool' ? (
+                        <div className="chat-tool-event">{message.content}</div>
+                      ) : (
+                        <div className="chat-assistant-markdown markdown-box-content" dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(message.content || ' ') }} />
+                      )}
+
+                      {(message.role === 'assistant' || message.role === 'error') && (
+                        <div className="chat-message-actions">
                           <button
                             className="msg-action-btn"
-                            title="Retry"
+                            title="Copy text"
                             onClick={() => {
-                              // Find the last user message before this one
-                              const history = orderedChatMessages
-                              const idx = history.findIndex(m => m.id === message.id)
-                              if (idx > 0) {
-                                const lastUserMsg = [...history.slice(0, idx)].reverse().find(m => m.role === 'user')
-                                if (lastUserMsg) {
-                                  // Filter out the user message and everything after it
-                                  const remainingMessages = chatMessages.filter(m => m.order < lastUserMsg.order)
-                                  setChatMessages(remainingMessages)
-                                  void runAgent(lastUserMsg.content, remainingMessages)
-                                }
-                              }
+                              void navigator.clipboard.writeText(message.content)
+                              setStatusMessage('Copied to clipboard')
                             }}
                           >
-                            <RotateCcw size={13} />
+                            <Copy size={13} />
                           </button>
-                        )}
-                      </div>
-                    </div>
+                          {message.id === (orderedChatMessages.filter(m => m.role === 'assistant' || m.role === 'error').slice(-1)[0]?.id) && (
+                            <button
+                              className="msg-action-btn"
+                              title="Retry"
+                              onClick={() => {
+                                // Find the last user message before this one
+                                const history = orderedChatMessages
+                                const idx = history.findIndex(m => m.id === message.id)
+                                if (idx >= 0) {
+                                  // Find the last user message before or at this current index
+                                  const lastUserMsg = [...history.slice(0, idx + 1)].reverse().find(m => m.role === 'user')
+                                  if (lastUserMsg) {
+                                    // Filter out the user message and everything after it
+                                    const remainingMessages = chatMessages.filter(m => m.order < lastUserMsg.order)
+                                    setChatMessages(remainingMessages)
+                                    void runAgent(lastUserMsg.content, remainingMessages)
+                                  }
+                                }
+                              }}
+                            >
+                              <RotateCcw size={13} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ))}
@@ -5050,6 +5219,18 @@ export function WhiteboardPage() {
                             }
                           />
                           <span>Stream</span>
+                        </label>
+                        <label className="ai-model-stream-toggle" title="Show reasoning/thoughts if supported">
+                          <input
+                            type="checkbox"
+                            checked={model.reasoning}
+                            onChange={(event) =>
+                              setModelPresets((prev) =>
+                                prev.map((item) => (item.id === model.id ? { ...item, reasoning: event.target.checked } : item)),
+                              )
+                            }
+                          />
+                          <span>Reasoning</span>
                         </label>
                         <button
                           className="ai-config-remove-btn"
