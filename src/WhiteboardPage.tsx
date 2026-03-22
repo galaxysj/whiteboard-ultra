@@ -1280,7 +1280,6 @@ export function WhiteboardPage() {
     return parseModelPresets(window.localStorage.getItem(AI_MODEL_LIST_STORAGE_KEY))
   })
   const [selectedChatModelId, setSelectedChatModelId] = useState(defaultModelPresets[0]?.id ?? '')
-  const [pendingAssetKind, setPendingAssetKind] = useState<Asset['kind'] | null>(null)
   const [pendingAsset, setPendingAsset] = useState<Asset | null>(null)
   const [pendingAssetInsertPoint, setPendingAssetInsertPoint] = useState<Point | null>(null)
   const [statusMessage, setStatusMessage] = useState('Loading workspace...')
@@ -2501,7 +2500,7 @@ export function WhiteboardPage() {
       'change',
       () => {
         const file = input.files?.[0] ?? null
-        void handleAssetFile(file)
+        void handleAssetFile(kind, file)
         input.remove()
       },
       { once: true },
@@ -2524,13 +2523,13 @@ export function WhiteboardPage() {
     setOpenToolCategory((prev) => (prev === category ? null : category))
   }
 
-  const handleAssetFile = async (file: File | null) => {
-    if (!file || !activeBoardId || !pendingAssetKind) return
-    if (!isAcceptedAssetFile(pendingAssetKind, file)) {
+  const handleAssetFile = async (kind: Asset['kind'], file: File | null) => {
+    if (!file || !activeBoardId) return
+    if (!isAcceptedAssetFile(kind, file)) {
       const label =
-        pendingAssetKind === 'image'
+        kind === 'image'
           ? 'Images only. SVG is not allowed.'
-          : pendingAssetKind === 'video'
+          : kind === 'video'
             ? 'Videos only.'
             : 'This file type is not allowed.'
       setStatusMessage(label)
@@ -2539,14 +2538,14 @@ export function WhiteboardPage() {
       return
     }
     try {
-      const asset = await api.uploadAsset(activeBoardId, pendingAssetKind, file)
+      const asset = await api.uploadAsset(activeBoardId, kind, file)
       setAssets((prev) => [asset, ...prev])
-      if (pendingAssetInsertPoint && asset.kind === pendingAssetKind) {
+      if (pendingAssetInsertPoint && asset.kind === kind) {
         await insertAssetAtPoint(pendingAssetInsertPoint, asset)
         setStatusMessage(`Inserted ${asset.name}.`)
       } else {
         setPendingAsset(asset)
-        setTool(pendingAssetKind)
+        setTool(kind)
         setStatusMessage(`Uploaded ${asset.name}. Click canvas to place it.`)
       }
     } catch (error) {
