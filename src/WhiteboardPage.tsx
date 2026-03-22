@@ -147,61 +147,61 @@ type DragState =
   | { kind: 'move'; elementId: string; start: Point; original: BoardElement }
   | { kind: 'resize'; elementId: string; start: Point; original: BoardElement }
   | {
-      kind: 'compass-radius'
-      elementId: string
-      center: Point
-      original: BoardElement
-    }
+    kind: 'compass-radius'
+    elementId: string
+    center: Point
+    original: BoardElement
+  }
   | {
-      kind: 'rotate'
-      elementId: string
-      center: Point
-      startAngle: number
-      originalRotation: number
-      original: BoardElement
-    }
+    kind: 'rotate'
+    elementId: string
+    center: Point
+    startAngle: number
+    originalRotation: number
+    original: BoardElement
+  }
   | {
-      kind: 'compass-draw'
-      elementId: string
-      center: Point
-      radius: number
-      handleRadius: number
-      angleOffset: number
-      stroke: string
-      strokeWidth: number
-      startContinuousAngle: number
-      minContinuousAngle: number
-      maxContinuousAngle: number
-      points: Point[]
-      continuousAngle: number
-      endAngle: number
-    }
+    kind: 'compass-draw'
+    elementId: string
+    center: Point
+    radius: number
+    handleRadius: number
+    angleOffset: number
+    stroke: string
+    strokeWidth: number
+    startContinuousAngle: number
+    minContinuousAngle: number
+    maxContinuousAngle: number
+    points: Point[]
+    continuousAngle: number
+    endAngle: number
+  }
   | {
-      kind: 'compass-rotate'
-      elementId: string
-      center: Point
-      angleOffset: number
-      original: BoardElement
-    }
+    kind: 'compass-rotate'
+    elementId: string
+    center: Point
+    angleOffset: number
+    original: BoardElement
+  }
   | null
 
 type ModalState =
   | {
-      kind: 'text'
-      title: string
-      message?: string
-      placeholder?: string
-      initialValue: string
-      confirmLabel?: string
-      multiline?: boolean
-    }
+    kind: 'text'
+    title: string
+    message?: string
+    placeholder?: string
+    initialValue: string
+    confirmLabel?: string
+    multiline?: boolean
+  }
   | {
-      kind: 'confirm'
-      title: string
-      message: string
-      confirmLabel?: string
-      danger?: boolean
-    }
+    kind: 'confirm'
+    title: string
+    message: string
+    confirmLabel?: string
+    danger?: boolean
+  }
   | null
 
 type TextModalConfig = Extract<ModalState, { kind: 'text' }>
@@ -646,9 +646,9 @@ const getShapeFillColor = (hex: string) => {
   const value =
     normalized.length === 3
       ? normalized
-          .split('')
-          .map((part) => `${part}${part}`)
-          .join('')
+        .split('')
+        .map((part) => `${part}${part}`)
+        .join('')
       : normalized
   if (value.length !== 6) return 'rgba(24, 49, 83, 0.18)'
   const red = Number.parseInt(value.slice(0, 2), 16)
@@ -1515,10 +1515,10 @@ export function WhiteboardPage() {
           prev.map((provider) =>
             provider.providerType === settings.providerType
               ? {
-                  ...provider,
-                  apiKey: provider.apiKey || settings.apiKey,
-                  baseUrl: settings.providerType === 'compatible' ? settings.baseUrl || provider.baseUrl : provider.baseUrl,
-                }
+                ...provider,
+                apiKey: provider.apiKey || settings.apiKey,
+                baseUrl: settings.providerType === 'compatible' ? settings.baseUrl || provider.baseUrl : provider.baseUrl,
+              }
               : provider,
           ),
         )
@@ -1920,11 +1920,11 @@ export function WhiteboardPage() {
       const styledPlaced =
         placed.type === 'compass'
           ? {
-              ...placed,
-              stroke: penColor,
-              strokeWidth: clamp(penStrokeWidth, 1, 8),
-              updatedAt: new Date().toISOString(),
-            }
+            ...placed,
+            stroke: penColor,
+            strokeWidth: clamp(penStrokeWidth, 1, 8),
+            updatedAt: new Date().toISOString(),
+          }
           : placed
       commitElements([...elements, styledPlaced])
       setSelectedElementId(styledPlaced.id)
@@ -1945,10 +1945,10 @@ export function WhiteboardPage() {
       const nextPlaced =
         placed.type === 'code'
           ? {
-              ...placed,
-              language: codeLanguage,
-              updatedAt: new Date().toISOString(),
-            }
+            ...placed,
+            language: codeLanguage,
+            updatedAt: new Date().toISOString(),
+          }
           : placed
       commitElements([...elements, nextPlaced])
       setSelectedElementId(nextPlaced.id)
@@ -1960,10 +1960,10 @@ export function WhiteboardPage() {
       const nextPlaced =
         placed.type === 'monaco'
           ? {
-              ...placed,
-              language: codeLanguage,
-              updatedAt: new Date().toISOString(),
-            }
+            ...placed,
+            language: codeLanguage,
+            updatedAt: new Date().toISOString(),
+          }
           : placed
       commitElements([...elements, nextPlaced])
       setSelectedElementId(nextPlaced.id)
@@ -2151,10 +2151,10 @@ export function WhiteboardPage() {
         const next = prev.map((element) =>
           element.id === activeDrag.elementId && element.type === 'compass'
             ? {
-                ...element,
-                radius: nextRadius,
-                updatedAt: new Date().toISOString(),
-              }
+              ...element,
+              radius: nextRadius,
+              updatedAt: new Date().toISOString(),
+            }
             : element,
         )
         elementsRef.current = next
@@ -2168,10 +2168,10 @@ export function WhiteboardPage() {
         const next = prev.map((element) =>
           element.id === activeDrag.elementId && element.type === 'compass'
             ? {
-                ...element,
-                endAngle: nextEndAngle,
-                updatedAt: new Date().toISOString(),
-              }
+              ...element,
+              endAngle: nextEndAngle,
+              updatedAt: new Date().toISOString(),
+            }
             : element,
         )
         elementsRef.current = next
@@ -2188,8 +2188,8 @@ export function WhiteboardPage() {
         const next = prev.map((element) =>
           element.id === activeDrag.elementId
             ? updateElement(activeDrag.original, {
-                rotation: activeDrag.originalRotation + delta,
-              })
+              rotation: activeDrag.originalRotation + delta,
+            })
             : element,
         )
         elementsRef.current = next
@@ -2222,10 +2222,10 @@ export function WhiteboardPage() {
         const next = prev.map((element) =>
           element.id === activeDrag.elementId && element.type === 'compass'
             ? {
-                ...element,
-                endAngle: normalizedEndAngle,
-                updatedAt: new Date().toISOString(),
-              }
+              ...element,
+              endAngle: normalizedEndAngle,
+              updatedAt: new Date().toISOString(),
+            }
             : element,
         )
         elementsRef.current = next
@@ -2234,17 +2234,17 @@ export function WhiteboardPage() {
       setDrag((prev) =>
         prev?.kind === 'compass-draw'
           ? (() => {
-              const nextDrag: DragState = {
-                ...prev,
-                points: arcPoints,
-                minContinuousAngle: minAngle,
-                maxContinuousAngle: maxAngle,
-                continuousAngle: currentAngle,
-                endAngle: normalizedEndAngle,
-              }
-              dragRef.current = nextDrag
-              return nextDrag
-            })()
+            const nextDrag: DragState = {
+              ...prev,
+              points: arcPoints,
+              minContinuousAngle: minAngle,
+              maxContinuousAngle: maxAngle,
+              continuousAngle: currentAngle,
+              endAngle: normalizedEndAngle,
+            }
+            dragRef.current = nextDrag
+            return nextDrag
+          })()
           : prev,
       )
       return
@@ -2302,10 +2302,10 @@ export function WhiteboardPage() {
       const updatedElements = currentElements.map((element) =>
         element.id === activeDrag.elementId && element.type === 'compass'
           ? {
-              ...element,
-              endAngle: activeDrag.endAngle,
-              updatedAt: new Date().toISOString(),
-            }
+            ...element,
+            endAngle: activeDrag.endAngle,
+            updatedAt: new Date().toISOString(),
+          }
           : element,
       )
       if (activeDrag.points.length > 1) {
@@ -2326,8 +2326,8 @@ export function WhiteboardPage() {
       const nextSelected = isClickSelection
         ? topElementAt(activeDrag.end)?.id ?? null
         : sortByZ(elementsRef.current).find((element) =>
-            isSelectableElement(element) && rectsIntersect(selectionRect, getElementSelectionBounds(element)),
-          )?.id ?? null
+          isSelectableElement(element) && rectsIntersect(selectionRect, getElementSelectionBounds(element)),
+        )?.id ?? null
       setSelectedElementId(nextSelected)
     } else if (
       activeDrag?.kind === 'move' ||
@@ -2748,13 +2748,13 @@ export function WhiteboardPage() {
     const screenPoint =
       pointerScreenRef.current && rect
         ? {
-            x: clamp(pointerScreenRef.current.x - rect.left, 16, Math.max(16, rect.width - 16)),
-            y: clamp(pointerScreenRef.current.y - rect.top, 16, Math.max(16, rect.height - 16)),
-          }
+          x: clamp(pointerScreenRef.current.x - rect.left, 16, Math.max(16, rect.width - 16)),
+          y: clamp(pointerScreenRef.current.y - rect.top, 16, Math.max(16, rect.height - 16)),
+        }
         : {
-            x: (rect?.width ?? 0) / 2,
-            y: (rect?.height ?? 0) / 2,
-          }
+          x: (rect?.width ?? 0) / 2,
+          y: (rect?.height ?? 0) / 2,
+        }
     const fallbackAnchor = {
       x: viewport.x + (rect?.width ?? 0) / Math.max(1, viewport.zoom) / 2,
       y: viewport.y + (rect?.height ?? 0) / Math.max(1, viewport.zoom) / 2,
@@ -2939,10 +2939,10 @@ export function WhiteboardPage() {
                   return prev.map((message) =>
                     message.id === assistantMessageId
                       ? {
-                          ...message,
-                          content: `${message.content}${chunk}`,
-                          status: 'done',
-                        }
+                        ...message,
+                        content: `${message.content}${chunk}`,
+                        status: 'done',
+                      }
                       : message,
                   )
                 })
@@ -2954,21 +2954,21 @@ export function WhiteboardPage() {
             setChatMessages((prev) =>
               assistantCreated
                 ? prev.map((message) =>
-                    message.id === assistantMessageId
-                      ? { ...message, content: 'AI provider returned an empty response.', status: 'done' }
-                      : message,
-                  )
+                  message.id === assistantMessageId
+                    ? { ...message, content: 'AI provider returned an empty response.', status: 'done' }
+                    : message,
+                )
                 : [
-                    ...prev,
-                    {
-                      id: assistantMessageId,
-                      role: 'assistant',
-                      content: 'AI provider returned an empty response.',
-                      createdAt: new Date().toISOString(),
-                      order: nextChatOrder(),
-                      status: 'done',
-                    },
-                  ],
+                  ...prev,
+                  {
+                    id: assistantMessageId,
+                    role: 'assistant',
+                    content: 'AI provider returned an empty response.',
+                    createdAt: new Date().toISOString(),
+                    order: nextChatOrder(),
+                    status: 'done',
+                  },
+                ],
             )
           }
         } else {
@@ -3138,10 +3138,10 @@ export function WhiteboardPage() {
       const next = prev.map((element) =>
         element.id === selectedGraphElement.id && element.type === 'graph'
           ? {
-              ...element,
-              ...patch,
-              updatedAt: now,
-            }
+            ...element,
+            ...patch,
+            updatedAt: now,
+          }
           : element,
       )
       elementsRef.current = next
@@ -3308,18 +3308,18 @@ export function WhiteboardPage() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img
-            src="/favicon.svg"
-            alt="Whiteboard Ultra"
-            style={{ width: 45, height: 45, display: 'block' }}
-          />
-          <div>
-            <strong>Whiteboard Ultra</strong>
-            <span>{statusMessage}</span>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img
+              src="/favicon.svg"
+              alt="Whiteboard Ultra"
+              style={{ width: 45, height: 45, display: 'block' }}
+            />
+            <div>
+              <strong>Whiteboard Ultra</strong>
+              <span>{statusMessage}</span>
+            </div>
           </div>
-        </div>
 
         </div>
         <div className="board-controls">
@@ -3395,7 +3395,7 @@ export function WhiteboardPage() {
               onBlur={hideToolbarTooltip}
             >
               <button onClick={() => void clearAllElements()} disabled={elements.length === 0}>
-                <CircleX size={14} /> 
+                <CircleX size={14} />
               </button>
             </div>
             <div
@@ -3446,9 +3446,9 @@ export function WhiteboardPage() {
                           return {
                             ...item,
                             language: value,
-      updatedAt: new Date().toISOString(),
-    }
-  }
+                            updatedAt: new Date().toISOString(),
+                          }
+                        }
 
                         if (selectedCodeElement && item.id === selectedCodeElement.id && item.type === 'code') {
                           return {
@@ -3543,47 +3543,9 @@ export function WhiteboardPage() {
             ) : null}
             {isSelectionTool && selectedCompassElement ? (
               <>
-                <button
-                  className={selectedCompassElement.flipped ? 'tool-button active' : 'tool-button'}
-                  onClick={() => {
-                    setElements((prev) => {
-                      const next = prev.map((element) => {
-                        if (element.id === selectedCompassElement.id && element.type === 'compass') {
-                          // Perform an "in-place" flip by keeping the Hinge at the same world coordinate
-                          const oldGeom = getCompassGeometry(element)
-                          const nextFlipped = !element.flipped
-                          const nextEndAngle = normalizeAngle(180 - element.endAngle)
 
-                          // Calculate how much we need to shift element.x/y to keep hinge steady
-                          // We pass the new state to getCompassGeometry to see where the hinge would land
-                          const temp = { ...element, flipped: nextFlipped, endAngle: nextEndAngle }
-                          const newGeom = getCompassGeometry(temp)
-
-                          const dx = oldGeom.hinge.x - newGeom.hinge.x
-                          const dy = oldGeom.hinge.y - newGeom.hinge.y
-
-                          return {
-                            ...element,
-                            flipped: nextFlipped,
-                            endAngle: nextEndAngle,
-                            x: element.x + dx,
-                            y: element.y + dy,
-                            updatedAt: new Date().toISOString(),
-                          }
-                        }
-                        return element
-                      })
-                      elementsRef.current = next
-                      return next
-                    })
-                  }}
-                  title="Flip compass"
-                  data-tooltip="Flip compass"
-                >
-                  <FlipHorizontal size={15} />
-                </button>
                 <label className="eraser-size" title="Compass stroke thickness">
-                  <Compass size={13} />
+                  <DraftingCompass size={13} />
                   <input
                     type="range"
                     min={1}
@@ -3624,6 +3586,44 @@ export function WhiteboardPage() {
                     aria-label="Compass stroke color"
                   />
                 </label>
+                <button
+                  className={selectedCompassElement.flipped ? 'tool-button active' : 'tool-button'}
+                  onClick={() => {
+                    setElements((prev) => {
+                      const next = prev.map((element) => {
+                        if (element.id === selectedCompassElement.id && element.type === 'compass') {
+                          // Perform an "in-place" flip by keeping the Hinge at the same world coordinate
+                          const oldGeom = getCompassGeometry(element)
+                          const nextFlipped = !element.flipped
+                          const nextEndAngle = normalizeAngle(180 - element.endAngle)
+
+                          // Calculate how much we need to shift element.x/y to keep hinge steady
+                          // We pass the new state to getCompassGeometry to see where the hinge would land
+                          const temp = { ...element, flipped: nextFlipped, endAngle: nextEndAngle }
+                          const newGeom = getCompassGeometry(temp)
+
+                          const dx = oldGeom.hinge.x - newGeom.hinge.x
+                          const dy = oldGeom.hinge.y - newGeom.hinge.y
+
+                          return {
+                            ...element,
+                            flipped: nextFlipped,
+                            endAngle: nextEndAngle,
+                            x: element.x + dx,
+                            y: element.y + dy,
+                            updatedAt: new Date().toISOString(),
+                          }
+                        }
+                        return element
+                      })
+                      elementsRef.current = next
+                      return next
+                    })
+                  }}
+                  title="Flip compass"
+                >
+                  Flip
+                </button>
               </>
             ) : null}
             {isSelectionTool && selectedGraphElement ? (
@@ -3715,7 +3715,7 @@ export function WhiteboardPage() {
                 </label>
               </>
             ) : null}
-           
+
           </div>
           {toolbarTooltip ? (
             <div
@@ -3898,15 +3898,15 @@ export function WhiteboardPage() {
                   !drag &&
                   ((isCalculatorHTMLElement(element) ||
                     (selected &&
-                    (element.type === 'iframe' ||
-                      element.type === 'html' ||
-                      element.type === 'video' ||
-                      element.type === 'file' ||
-                      element.type === 'code' ||
-                      element.type === 'monaco' ||
-                      element.type === 'text' ||
-                      element.type === 'markdown' ||
-                      element.type === 'graph'))) ||
+                      (element.type === 'iframe' ||
+                        element.type === 'html' ||
+                        element.type === 'video' ||
+                        element.type === 'file' ||
+                        element.type === 'code' ||
+                        element.type === 'monaco' ||
+                        element.type === 'text' ||
+                        element.type === 'markdown' ||
+                        element.type === 'graph'))) ||
                     editingTextId === element.id)
                 return (
                   <div
@@ -3939,11 +3939,11 @@ export function WhiteboardPage() {
                           : undefined,
                       background:
                         element.type === 'rectangle' ||
-                        element.type === 'ellipse' ||
-                        element.type === 'latex' ||
-                        element.type === 'pen' ||
-                        element.type === 'file' ||
-                        isCalculatorHTMLElement(element)
+                          element.type === 'ellipse' ||
+                          element.type === 'latex' ||
+                          element.type === 'pen' ||
+                          element.type === 'file' ||
+                          isCalculatorHTMLElement(element)
                           ? 'transparent'
                           : element.fill,
                       transform: element.type === 'pen' ? undefined : `rotate(${element.rotation}deg)`,
@@ -4174,10 +4174,10 @@ export function WhiteboardPage() {
                                 prev.map((item) =>
                                   item.id === element.id && item.type === 'code'
                                     ? {
-                                        ...item,
-                                        code: value,
-                                        updatedAt: new Date().toISOString(),
-                                      }
+                                      ...item,
+                                      code: value,
+                                      updatedAt: new Date().toISOString(),
+                                    }
                                     : item,
                                 ),
                               )
@@ -4229,10 +4229,10 @@ export function WhiteboardPage() {
                               prev.map((item) =>
                                 item.id === element.id && item.type === 'monaco'
                                   ? {
-                                      ...item,
-                                      code: value ?? '',
-                                      updatedAt: new Date().toISOString(),
-                                    }
+                                    ...item,
+                                    code: value ?? '',
+                                    updatedAt: new Date().toISOString(),
+                                  }
                                   : item,
                               ),
                             )
@@ -4654,10 +4654,10 @@ export function WhiteboardPage() {
                         prev.map((item) =>
                           item.id === editingTextElement.id && isEditableTextElement(item)
                             ? {
-                                ...item,
-                                text: value,
-                                updatedAt: new Date().toISOString(),
-                              }
+                              ...item,
+                              text: value,
+                              updatedAt: new Date().toISOString(),
+                            }
                             : item,
                         ),
                       )
@@ -4678,73 +4678,73 @@ export function WhiteboardPage() {
 
         {aiOpen ? (
           <aside className="ai-panel open">
-          <div className="ai-head">
-            <h2>Agent</h2>
-            <button
-              type="button"
-              className="new-chat-btn"
-              onClick={() => {
-                chatSessionRef.current += 1
-                setChatMessages([])
-                chatMessageOrderRef.current = 0
-                setAgentCursor({ visible: false, x: 0, y: 0 })
-                setAgentPrompt('')
-                setAgentLoading(false)
-              }}
-            >
-              <Plus size={14} />
-              New chat
-            </button>
-          </div>
+            <div className="ai-head">
+              <h2>Agent</h2>
+              <button
+                type="button"
+                className="new-chat-btn"
+                onClick={() => {
+                  chatSessionRef.current += 1
+                  setChatMessages([])
+                  chatMessageOrderRef.current = 0
+                  setAgentCursor({ visible: false, x: 0, y: 0 })
+                  setAgentPrompt('')
+                  setAgentLoading(false)
+                }}
+              >
+                <Plus size={14} />
+                New chat
+              </button>
+            </div>
 
-          <div className="chat-window" ref={chatWindowRef}>
-            {orderedChatMessages.length === 0 ? <div className="chat-empty">Start by asking agent to build something...</div> : null}
-            {orderedChatMessages.map((message) => (
-              <div key={message.id} className={`chat-message ${message.role}`}>
-                {message.role === 'user' ? (
-                  <p>{message.content}</p>
-                ) : message.role === 'error' ? (
-                  <div className="chat-error-card">
-                    <CircleX size={16} />
+            <div className="chat-window" ref={chatWindowRef}>
+              {orderedChatMessages.length === 0 ? <div className="chat-empty">Start by asking agent to build something...</div> : null}
+              {orderedChatMessages.map((message) => (
+                <div key={message.id} className={`chat-message ${message.role}`}>
+                  {message.role === 'user' ? (
                     <p>{message.content}</p>
-                  </div>
-                ) : message.role === 'thought' ? (
-                  message.status === 'thinking' ? (
-                    <div className="chat-thinking">
-                      <span>Thinking</span>
-                      <div className="chat-thinking-shimmer" />
+                  ) : message.role === 'error' ? (
+                    <div className="chat-error-card">
+                      <CircleX size={16} />
+                      <p>{message.content}</p>
                     </div>
+                  ) : message.role === 'thought' ? (
+                    message.status === 'thinking' ? (
+                      <div className="chat-thinking">
+                        <span>Thinking</span>
+                        <div className="chat-thinking-shimmer" />
+                      </div>
+                    ) : (
+                      <div className="chat-thought-pill">{message.content}</div>
+                    )
+                  ) : message.role === 'tool' ? (
+                    <div className="chat-tool-event">{message.content}</div>
                   ) : (
-                    <div className="chat-thought-pill">{message.content}</div>
-                  )
-                ) : message.role === 'tool' ? (
-                  <div className="chat-tool-event">{message.content}</div>
-                ) : (
-                  <div className="chat-assistant-block">
-                    {message.content ? (
-                      <div
-                        className="chat-assistant-markdown markdown-box-content"
-                        dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(message.content || ' ') }}
-                      />
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+                    <div className="chat-assistant-block">
+                      {message.content ? (
+                        <div
+                          className="chat-assistant-markdown markdown-box-content"
+                          dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(message.content || ' ') }}
+                        />
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
 
-          <div className="chat-compose">
-            <textarea
-              value={agentPrompt}
-              onChange={(event) => setAgentPrompt(event.target.value)}
-              placeholder={agentMode === 'chat' ? 'Ask about your board...' : 'Build, Edit and Delete...'}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-                  event.preventDefault()
-                  void runAgent()
-                }
-              }}
-            />
+            <div className="chat-compose">
+              <textarea
+                value={agentPrompt}
+                onChange={(event) => setAgentPrompt(event.target.value)}
+                placeholder={agentMode === 'chat' ? 'Ask about your board...' : 'Build, Edit and Delete...'}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                    event.preventDefault()
+                    void runAgent()
+                  }
+                }}
+              />
 
               <div className="chat-compose-toolbar">
                 <div className="chat-compose-left">
@@ -4754,25 +4754,25 @@ export function WhiteboardPage() {
                     onChange={(value) => setAgentMode(value as AgentMode)}
                     options={[
                       { value: 'chat', label: 'Ask' },
-                    { value: 'build', label: 'Build' },
-                  ]}
-                />
-                <CustomDropdown
-                  className="compose-model-dropdown"
-                  value={selectedChatModelId}
-                  onChange={setSelectedChatModelId}
-                  options={modelPresets.map((model) => ({
-                    value: model.id,
-                    label: model.name,
-                  }))}
-                  placeholder="Model"
-                />
+                      { value: 'build', label: 'Build' },
+                    ]}
+                  />
+                  <CustomDropdown
+                    className="compose-model-dropdown"
+                    value={selectedChatModelId}
+                    onChange={setSelectedChatModelId}
+                    options={modelPresets.map((model) => ({
+                      value: model.id,
+                      label: model.name,
+                    }))}
+                    placeholder="Model"
+                  />
+                </div>
+                <button className="compose-send-btn" onClick={() => void runAgent()} disabled={agentLoading}>
+                  <Send size={16} />
+                </button>
               </div>
-              <button className="compose-send-btn" onClick={() => void runAgent()} disabled={agentLoading}>
-                <Send size={16} />
-              </button>
             </div>
-          </div>
           </aside>
         ) : null}
       </div>
@@ -4803,164 +4803,164 @@ export function WhiteboardPage() {
               <div className="settings-section-stack">
                 <p>Manage provider and model lists.</p>
 
-                  <section className="ai-config-section">
-                    <div className="ai-config-head">
-                      <h4>Provider List</h4>
-                      <button className="ai-config-add-btn" onClick={addProviderPreset}>
-                        <Plus size={14} /> Add
-                      </button>
-                    </div>
-                    <div className="ai-config-list">
-                      {providerPresets.map((provider) => (
-                        <div key={provider.id} className="ai-provider-row">
-                          <input
-                            value={provider.name}
-                            onChange={(event) =>
-                              setProviderPresets((prev) =>
-                                prev.map((item) => (item.id === provider.id ? { ...item, name: event.target.value } : item)),
-                              )
-                            }
-                            placeholder="Provider name"
-                          />
-                          <CustomDropdown
-                            className="ai-config-dropdown"
-                            value={provider.providerType}
-                            onChange={(nextType) =>
-                              setProviderPresets((prev) =>
-                                prev.map((item) =>
-                                  item.id === provider.id
-                                    ? { ...item, providerType: nextType as AIProviderSettings['providerType'] }
-                                    : item,
-                                ),
-                              )
-                            }
-                            options={[
-                              { value: 'openai', label: 'OpenAI' },
-                              { value: 'gemini', label: 'Gemini' },
-                              { value: 'compatible', label: 'Compatible' },
-                            ]}
-                          />
-                          <input
-                            value={provider.baseUrl}
-                            disabled={provider.providerType !== 'compatible'}
-                            onChange={(event) =>
-                              setProviderPresets((prev) =>
-                                prev.map((item) => (item.id === provider.id ? { ...item, baseUrl: event.target.value } : item)),
-                              )
-                            }
-                            placeholder={
-                              provider.providerType === 'compatible'
-                                ? 'Base URL (compatible)'
-                                : 'Base URL available for Compatible only'
-                            }
-                          />
-                          <input
-                            type="password"
-                            value={provider.apiKey}
-                            onChange={(event) =>
-                              setProviderPresets((prev) =>
-                                prev.map((item) => (item.id === provider.id ? { ...item, apiKey: event.target.value } : item)),
-                              )
-                            }
-                            placeholder="API key"
-                          />
-                          <button className="ai-config-remove-btn" onClick={() => removeProviderPreset(provider.id)}>
-                            <CircleX size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section className="ai-config-section">
-                    <div className="ai-config-head">
-                      <h4>Model List</h4>
-                      <button className="ai-config-add-btn" onClick={addModelPreset}>
-                        <Plus size={14} /> Add
-                      </button>
-                    </div>
-                    <div className="ai-config-list">
-                      {modelPresets.map((model) => (
-                        <div key={model.id} className="ai-model-row">
-                          <input
-                            value={model.name}
-                            onChange={(event) =>
-                              setModelPresets((prev) =>
-                                prev.map((item) => (item.id === model.id ? { ...item, name: event.target.value } : item)),
-                              )
-                            }
-                            placeholder="Model name"
-                          />
-                          <input
-                            value={model.modelId}
-                            onChange={(event) =>
-                              setModelPresets((prev) =>
-                                prev.map((item) => (item.id === model.id ? { ...item, modelId: event.target.value } : item)),
-                              )
-                            }
-                            placeholder="Model ID"
-                          />
-                          <CustomDropdown
-                            className="ai-config-dropdown"
-                            value={model.providerId}
-                            onChange={(nextProviderId) =>
-                              setModelPresets((prev) =>
-                                prev.map((item) => (item.id === model.id ? { ...item, providerId: nextProviderId } : item)),
-                              )
-                            }
-                            options={providerPresets.map((provider) => ({
-                              value: provider.id,
-                              label: provider.name,
-                            }))}
-                            placeholder="Provider"
-                          />
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={model.contextSize}
-                            onChange={(event) =>
-                              setModelPresets((prev) =>
-                                prev.map((item) =>
-                                  item.id === model.id
-                                    ? { ...item, contextSize: sanitizeContextSizeInput(event.target.value) }
-                                    : item,
-                                ),
-                              )
-                            }
-                            placeholder="Context size"
-                          />
-                          <label className="ai-model-stream-toggle" title="Enable real-time streaming">
-                            <input
-                              type="checkbox"
-                              checked={model.stream}
-                              onChange={(event) =>
-                                setModelPresets((prev) =>
-                                  prev.map((item) => (item.id === model.id ? { ...item, stream: event.target.checked } : item)),
-                                )
-                              }
-                            />
-                            <span>Stream</span>
-                          </label>
-                          <button
-                            className="ai-config-remove-btn"
-                            onClick={() => setModelPresets((prev) => prev.filter((item) => item.id !== model.id))}
-                          >
-                            <CircleX size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-
-                  <div className="settings-actions">
-                    <button className="settings-secondary-btn" onClick={() => setSettingsOpen(false)}>
-                      Cancel
-                    </button>
-                    <button className="settings-primary-btn" onClick={() => void saveAIConfiguration()}>
-                      <Check size={14} /> Save AI settings
+                <section className="ai-config-section">
+                  <div className="ai-config-head">
+                    <h4>Provider List</h4>
+                    <button className="ai-config-add-btn" onClick={addProviderPreset}>
+                      <Plus size={14} /> Add
                     </button>
                   </div>
+                  <div className="ai-config-list">
+                    {providerPresets.map((provider) => (
+                      <div key={provider.id} className="ai-provider-row">
+                        <input
+                          value={provider.name}
+                          onChange={(event) =>
+                            setProviderPresets((prev) =>
+                              prev.map((item) => (item.id === provider.id ? { ...item, name: event.target.value } : item)),
+                            )
+                          }
+                          placeholder="Provider name"
+                        />
+                        <CustomDropdown
+                          className="ai-config-dropdown"
+                          value={provider.providerType}
+                          onChange={(nextType) =>
+                            setProviderPresets((prev) =>
+                              prev.map((item) =>
+                                item.id === provider.id
+                                  ? { ...item, providerType: nextType as AIProviderSettings['providerType'] }
+                                  : item,
+                              ),
+                            )
+                          }
+                          options={[
+                            { value: 'openai', label: 'OpenAI' },
+                            { value: 'gemini', label: 'Gemini' },
+                            { value: 'compatible', label: 'Compatible' },
+                          ]}
+                        />
+                        <input
+                          value={provider.baseUrl}
+                          disabled={provider.providerType !== 'compatible'}
+                          onChange={(event) =>
+                            setProviderPresets((prev) =>
+                              prev.map((item) => (item.id === provider.id ? { ...item, baseUrl: event.target.value } : item)),
+                            )
+                          }
+                          placeholder={
+                            provider.providerType === 'compatible'
+                              ? 'Base URL (compatible)'
+                              : 'Base URL available for Compatible only'
+                          }
+                        />
+                        <input
+                          type="password"
+                          value={provider.apiKey}
+                          onChange={(event) =>
+                            setProviderPresets((prev) =>
+                              prev.map((item) => (item.id === provider.id ? { ...item, apiKey: event.target.value } : item)),
+                            )
+                          }
+                          placeholder="API key"
+                        />
+                        <button className="ai-config-remove-btn" onClick={() => removeProviderPreset(provider.id)}>
+                          <CircleX size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="ai-config-section">
+                  <div className="ai-config-head">
+                    <h4>Model List</h4>
+                    <button className="ai-config-add-btn" onClick={addModelPreset}>
+                      <Plus size={14} /> Add
+                    </button>
+                  </div>
+                  <div className="ai-config-list">
+                    {modelPresets.map((model) => (
+                      <div key={model.id} className="ai-model-row">
+                        <input
+                          value={model.name}
+                          onChange={(event) =>
+                            setModelPresets((prev) =>
+                              prev.map((item) => (item.id === model.id ? { ...item, name: event.target.value } : item)),
+                            )
+                          }
+                          placeholder="Model name"
+                        />
+                        <input
+                          value={model.modelId}
+                          onChange={(event) =>
+                            setModelPresets((prev) =>
+                              prev.map((item) => (item.id === model.id ? { ...item, modelId: event.target.value } : item)),
+                            )
+                          }
+                          placeholder="Model ID"
+                        />
+                        <CustomDropdown
+                          className="ai-config-dropdown"
+                          value={model.providerId}
+                          onChange={(nextProviderId) =>
+                            setModelPresets((prev) =>
+                              prev.map((item) => (item.id === model.id ? { ...item, providerId: nextProviderId } : item)),
+                            )
+                          }
+                          options={providerPresets.map((provider) => ({
+                            value: provider.id,
+                            label: provider.name,
+                          }))}
+                          placeholder="Provider"
+                        />
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={model.contextSize}
+                          onChange={(event) =>
+                            setModelPresets((prev) =>
+                              prev.map((item) =>
+                                item.id === model.id
+                                  ? { ...item, contextSize: sanitizeContextSizeInput(event.target.value) }
+                                  : item,
+                              ),
+                            )
+                          }
+                          placeholder="Context size"
+                        />
+                        <label className="ai-model-stream-toggle" title="Enable real-time streaming">
+                          <input
+                            type="checkbox"
+                            checked={model.stream}
+                            onChange={(event) =>
+                              setModelPresets((prev) =>
+                                prev.map((item) => (item.id === model.id ? { ...item, stream: event.target.checked } : item)),
+                              )
+                            }
+                          />
+                          <span>Stream</span>
+                        </label>
+                        <button
+                          className="ai-config-remove-btn"
+                          onClick={() => setModelPresets((prev) => prev.filter((item) => item.id !== model.id))}
+                        >
+                          <CircleX size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <div className="settings-actions">
+                  <button className="settings-secondary-btn" onClick={() => setSettingsOpen(false)}>
+                    Cancel
+                  </button>
+                  <button className="settings-primary-btn" onClick={() => void saveAIConfiguration()}>
+                    <Check size={14} /> Save AI settings
+                  </button>
                 </div>
+              </div>
             </section>
           </div>
         </div>
