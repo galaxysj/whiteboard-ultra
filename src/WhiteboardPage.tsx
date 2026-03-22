@@ -1281,7 +1281,6 @@ export function WhiteboardPage() {
   })
   const [selectedChatModelId, setSelectedChatModelId] = useState(defaultModelPresets[0]?.id ?? '')
   const [pendingAsset, setPendingAsset] = useState<Asset | null>(null)
-  const [pendingAssetInsertPoint, setPendingAssetInsertPoint] = useState<Point | null>(null)
   const [statusMessage, setStatusMessage] = useState('Loading workspace...')
   const [modal, setModal] = useState<ModalState>(null)
   const [modalInput, setModalInput] = useState('')
@@ -1358,7 +1357,6 @@ export function WhiteboardPage() {
     commitElements([...elementsRef.current, nextElement])
     setSelectedElementId(nextElement.id)
     setPendingAsset(null)
-    setPendingAssetInsertPoint(null)
     setTool(nextToolOnComplete)
     return nextElement
   }
@@ -2048,8 +2046,7 @@ export function WhiteboardPage() {
         return
       }
       setPendingAsset(null)
-      setPendingAssetInsertPoint(point)
-      openAssetPicker(tool)
+      openAssetPicker(tool, point)
       setStatusMessage(`Choose a ${tool} file to insert at the selected position.`)
       return
     }
@@ -2483,7 +2480,7 @@ export function WhiteboardPage() {
     setStatusMessage('Saved now')
   }
 
-  const openAssetPicker = (kind: Asset['kind']) => {
+  const openAssetPicker = (kind: Asset['kind'], insertPoint?: Point) => {
     if (!activeBoardId) {
       setStatusMessage('Open a board first.')
       return
@@ -2499,7 +2496,7 @@ export function WhiteboardPage() {
       'change',
       () => {
         const file = input.files?.[0] ?? null
-        void handleAssetFile(kind, file)
+        void handleAssetFile(kind, file, insertPoint)
         input.remove()
       },
       { once: true },
@@ -2512,7 +2509,6 @@ export function WhiteboardPage() {
     if (nextTool === 'image' || nextTool === 'video' || nextTool === 'file') {
       setTool(nextTool)
       setPendingAsset(null)
-      setPendingAssetInsertPoint(null)
       setStatusMessage(`Click the canvas where you want to insert the ${nextTool}.`)
       return
     }
@@ -2522,7 +2518,7 @@ export function WhiteboardPage() {
     setOpenToolCategory((prev) => (prev === category ? null : category))
   }
 
-  const handleAssetFile = async (kind: Asset['kind'], file: File | null) => {
+  const handleAssetFile = async (kind: Asset['kind'], file: File | null, insertPoint?: Point) => {
     if (!file || !activeBoardId) return
     if (!isAcceptedAssetFile(kind, file)) {
       const label =
@@ -2532,14 +2528,13 @@ export function WhiteboardPage() {
             ? 'Videos only.'
             : 'This file type is not allowed.'
       setStatusMessage(label)
-      setPendingAssetInsertPoint(null)
       return
     }
     try {
       const asset = await api.uploadAsset(activeBoardId, kind, file)
       setAssets((prev) => [asset, ...prev])
-      if (pendingAssetInsertPoint && asset.kind === kind) {
-        await insertAssetAtPoint(pendingAssetInsertPoint, asset)
+      if (insertPoint && asset.kind === kind) {
+        await insertAssetAtPoint(insertPoint, asset)
         setStatusMessage(`Inserted ${asset.name}.`)
       } else {
         setPendingAsset(asset)
@@ -2548,7 +2543,6 @@ export function WhiteboardPage() {
       }
     } catch (error) {
       setStatusMessage(error instanceof Error ? `Upload failed: ${error.message}` : 'Upload failed')
-      setPendingAssetInsertPoint(null)
     }
   }
 
