@@ -11,7 +11,7 @@ const uploadsDir = path.join(rootDir, 'uploads')
 fs.mkdirSync(dataDir, { recursive: true })
 fs.mkdirSync(uploadsDir, { recursive: true })
 
-const db = new Database(path.join(dataDir, 'whiteboard-pro.db'))
+const db = new Database(path.join(dataDir, 'whiteboard-ultra.db'))
 db.pragma('journal_mode = WAL')
 
 db.exec(`
