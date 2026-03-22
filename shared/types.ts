@@ -15,6 +15,7 @@ export type ToolId =
   | 'rectangle'
   | 'ellipse'
   | 'iframe'
+  | 'html'
   | 'image'
   | 'video'
   | 'file'
@@ -94,6 +95,11 @@ export interface IframeElement extends ElementBase {
   title: string
 }
 
+export interface HTMLElement extends ElementBase {
+  type: 'html'
+  html: string
+}
+
 export interface AssetElement extends ElementBase {
   type: 'image' | 'video' | 'file'
   assetId: string
@@ -141,6 +147,7 @@ export type BoardElement =
   | MonacoElement
   | ShapeElement
   | IframeElement
+  | HTMLElement
   | AssetElement
   | CompassElement
   | GraphElement
@@ -242,6 +249,7 @@ export type BuildOperation =
 export interface AgentBuildRequest {
   boardId: string
   prompt: string
+  mode?: 'build' | 'insert'
   selectedElementId?: string
   viewOrigin?: Point
   viewBounds?: Rect

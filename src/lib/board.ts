@@ -1,6 +1,21 @@
 import katex from 'katex'
 import { marked } from 'marked'
+import hljs from 'highlight.js/lib/core'
+import bash from 'highlight.js/lib/languages/bash'
+import cpp from 'highlight.js/lib/languages/cpp'
+import csharp from 'highlight.js/lib/languages/csharp'
+import css from 'highlight.js/lib/languages/css'
+import go from 'highlight.js/lib/languages/go'
+import java from 'highlight.js/lib/languages/java'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
 import { nanoid } from 'nanoid'
+import python from 'highlight.js/lib/languages/python'
+import rust from 'highlight.js/lib/languages/rust'
+import sql from 'highlight.js/lib/languages/sql'
+import typescript from 'highlight.js/lib/languages/typescript'
+import xml from 'highlight.js/lib/languages/xml'
+import yaml from 'highlight.js/lib/languages/yaml'
 import type {
   Asset,
   AssetElement,
@@ -8,6 +23,7 @@ import type {
   CodeElement,
   CompassElement,
   GraphElement,
+  HTMLElement,
   LatexElement,
   MonacoElement,
   PenElement,
@@ -17,6 +33,22 @@ import type {
   TextElement,
   ToolId,
 } from '../../shared/types.ts'
+
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('html', xml)
+hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('css', css)
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('java', java)
+hljs.registerLanguage('cpp', cpp)
+hljs.registerLanguage('csharp', csharp)
+hljs.registerLanguage('go', go)
+hljs.registerLanguage('rust', rust)
+hljs.registerLanguage('sql', sql)
+hljs.registerLanguage('yaml', yaml)
+hljs.registerLanguage('bash', bash)
 
 const now = () => new Date().toISOString()
 const LATEX_BASE_FONT_SIZE = 34
@@ -137,7 +169,7 @@ export const createPlacedElement = (
   >,
   point: Point,
   zIndex: number,
-  payload?: { asset?: Asset; src?: string; title?: string },
+  payload?: { asset?: Asset; src?: string; title?: string; html?: string },
 ): BoardElement => {
   switch (type) {
     case 'iframe':
@@ -146,6 +178,11 @@ export const createPlacedElement = (
         src: payload?.src ?? 'https://example.com',
         title: payload?.title ?? 'Embedded content',
       }
+    case 'html':
+      return {
+        ...baseElement('html', point.x, point.y, 480, 280, zIndex),
+        html: payload?.html ?? '<div>Custom HTML</div>',
+      } satisfies HTMLElement
     case 'image':
     case 'video':
     case 'file':
@@ -345,6 +382,22 @@ export const renderMarkdownToHtml = (markdown: string) => {
   })
   const source = markdown?.trim() ? markdown : '# Markdown'
   return marked.parse(source, { async: false }) as string
+}
+
+export const renderCodeToHtml = (code: string, language?: string) => {
+  const source = code || ''
+  if (!source.trim()) return ''
+  try {
+    if (language && hljs.getLanguage(language)) {
+      return hljs.highlight(source, { language }).value
+    }
+    return hljs.highlightAuto(source).value
+  } catch {
+    return source
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+  }
 }
 
 export const describeElement = (element: BoardElement) => {

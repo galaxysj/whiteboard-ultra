@@ -1820,8 +1820,11 @@ const finalizeBuildMessage = (message: string, operationCount: number) => {
 
 const buildPromptPath = path.join(process.cwd(), 'system-build.md')
 const askPromptPath = path.join(process.cwd(), 'system-ask.md')
+const insertPromptPath = path.join(process.cwd(), 'system-insert.md')
 const defaultAskSystemPrompt =
   'You are Whiteboard Pro assistant. Answer in concise English based on the provided whiteboard state only. If the board does not contain enough information, say so clearly.'
+const defaultInsertSystemPrompt =
+  'You are Whiteboard Pro Insert mode agent. Add exactly one new element with a tool call and provide a brief summary.'
 
 export const getBuildSystemPrompt = () => {
   try {
@@ -1838,6 +1841,34 @@ const getAskSystemPrompt = () => {
     return text || defaultAskSystemPrompt
   } catch {
     return defaultAskSystemPrompt
+  }
+}
+
+const getInsertSystemPrompt = () => {
+  try {
+    const text = fs.readFileSync(insertPromptPath, 'utf8').trim()
+    return text || defaultInsertSystemPrompt
+  } catch {
+    return defaultInsertSystemPrompt
+  }
+}
+
+const normalizeBuildResult = (
+  board: Board,
+  runtime: BuildRuntime,
+  mode: 'build' | 'insert',
+) => {
+  if (mode !== 'insert') {
+    return {
+      operations: runtime.operations,
+      elements: runtime.elements,
+    }
+  }
+  const firstCreate = runtime.operations.find((operation) => operation.type === 'create')
+  const operations = firstCreate ? [firstCreate] : []
+  return {
+    operations,
+    elements: applyBuildOperations(board.elements, operations),
   }
 }
 
@@ -2349,6 +2380,7 @@ export const runBuildWithToolCalls = async (
   settings: AIProviderSettings,
   board: Board,
   prompt: string,
+  mode: 'build' | 'insert' = 'build',
   selectedElementId?: string,
   viewOrigin?: Point,
   viewBounds?: Rect,
@@ -2366,7 +2398,7 @@ export const runBuildWithToolCalls = async (
     toolEvents: [],
     operations: [],
   }
-  const systemPrompt = getBuildSystemPrompt()
+  const systemPrompt = mode === 'insert' ? getInsertSystemPrompt() : getBuildSystemPrompt()
   const userPrompt = buildUserPrompt(board, selectedElementId, prompt, runtime.viewOrigin, viewBounds, history)
 
   let message = ''
@@ -2380,10 +2412,12 @@ export const runBuildWithToolCalls = async (
     throw new Error('Unsupported provider.')
   }
 
+  const normalized = normalizeBuildResult(board, runtime, mode)
+
   return {
     message,
-    operations: runtime.operations,
-    elements: runtime.elements,
+    operations: normalized.operations,
+    elements: normalized.elements,
     toolEvents: runtime.toolEvents,
     thoughtSeconds: Math.max(0.1, (Date.now() - startedAt) / 1000),
   }

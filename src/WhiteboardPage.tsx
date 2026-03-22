@@ -9,7 +9,9 @@ import agentCursorSvg from './assets/cursor.svg'
 import {
   ALargeSmall,
   ArrowRight,
+  SquarePlus,
   Calculator,
+
   Check,
   ChevronDown,
   ChevronLeft,
@@ -36,8 +38,6 @@ import {
   Save,
   Scan,
   Send,
-  SidebarClose,
-  SidebarOpen,
   Settings2,
   SquareCode,
   Sparkles,
@@ -74,12 +74,15 @@ import {
   createShapeElement,
   normalizeRect,
   renderLatexToHtml,
+  renderCodeToHtml,
   renderMarkdownToHtml,
   resizeElement,
   SHAPE_MIN_SIZE,
   translateElement,
   updateElement,
 } from './lib/board.ts'
+import { FileBraces } from 'lucide-react';
+
 
 type Viewport = { x: number; y: number; zoom: number }
 type AgentCursorState = {
@@ -93,6 +96,7 @@ type InlineAgentComposerState = {
   loading: boolean
   anchorWorld: Point
   anchorScreen: Point
+  modelId: string
 }
 type AgentMode = 'chat' | 'build'
 type ChatMessage = {
@@ -110,7 +114,7 @@ type ProviderPreset = {
   baseUrl: string
   apiKey: string
 }
-type SettingsSection = 'workspace' | 'ai'
+type SettingsSection = 'ai'
 type ModelPreset = {
   id: string
   name: string
@@ -220,7 +224,8 @@ const TOOL_DEFS: Array<{ id: CanvasToolId; label: string; category: ToolCategory
   { id: 'arrow', label: 'Arrow', category: 'general', icon: ArrowRight },
   { id: 'rectangle', label: 'Rectangle', category: 'general', icon: RectangleHorizontal },
   { id: 'ellipse', label: 'Circle', category: 'general', icon: Circle },
-  { id: 'iframe', label: 'Embed', category: 'file', icon: FileCode2 },
+  { id: 'iframe', label: 'Embed', category: 'file', icon: FileBraces },
+  { id: 'html', label: 'Custom HTML', category: 'file', icon: FileCode2 },
   { id: 'image', label: 'Image', category: 'file', icon: FileImage },
   { id: 'video', label: 'Video', category: 'file', icon: FileVideo },
   { id: 'file', label: 'Other Files', category: 'file', icon: File },
@@ -1330,6 +1335,15 @@ export function WhiteboardPage() {
         return
       }
 
+      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && key === 'e') {
+        if (isTyping) return
+        event.preventDefault()
+        setEditingTextId(null)
+        setOpenToolCategory('general')
+        setTool('eraser-stroke')
+        return
+      }
+
       if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'l') {
         if (isTypingTarget(event.target)) return
         event.preventDefault()
@@ -1671,13 +1685,30 @@ export function WhiteboardPage() {
       })()
       return
     }
+    if (tool === 'html') {
+      void (async () => {
+        const html = await openTextModal({
+          title: 'Embed HTML',
+          message: 'Enter custom HTML code to embed.',
+          placeholder: 'enter a Snippet of a HTML...',
+          initialValue: '<div>Hello World</div>',
+          confirmLabel: 'Insert',
+        })
+        if (!html) return
+        const element = createPlacedElement('html', point, getNextZIndex(elements), {
+          html,
+        })
+        commitElements([...elements, element]); setSelectedElementId(element.id)
+      })()
+      return
+    }
     if (tool === 'latex') {
       void (async () => {
         const latex = await openTextModal({
           title: 'Insert LaTeX',
           message: 'Enter a LaTeX expression.',
-          placeholder: 'f(x)=x^2+3x+2',
-          initialValue: 'f(x)=x^2+3x+2',
+          placeholder: 'Enter a LaTex expression...',
+          initialValue: 'x^2',
           confirmLabel: 'Insert',
         })
         if (!latex) return
@@ -2013,9 +2044,9 @@ export function WhiteboardPage() {
 
   const createBoardAction = async () => {
     const name = await openTextModal({
-      title: 'Create Board',
+      title: 'New Board',
       message: 'Enter a board name.',
-      placeholder: 'Board name',
+      placeholder: `Board ${boards.length + 1}`,
       initialValue: `Board ${boards.length + 1}`,
       confirmLabel: 'Create',
     })
@@ -2036,9 +2067,9 @@ export function WhiteboardPage() {
   const renameBoardAction = async () => {
     if (!activeBoard) return
     const name = await openTextModal({
-      title: 'Rename Board',
+      title: 'Rename',
       message: 'Update the board name.',
-      placeholder: 'Board name',
+      placeholder: `Board ${activeBoard.name}`,
       initialValue: activeBoard.name,
       confirmLabel: 'Rename',
     })
@@ -2166,6 +2197,22 @@ export function WhiteboardPage() {
     } satisfies AIProviderSettings
   }
 
+  const buildAISettingsForModel = (modelPresetId: string) => {
+    const model = modelPresets.find((item) => item.id === modelPresetId) ?? null
+    if (!model) return null
+    const provider = providerPresets.find((item) => item.id === model.providerId) ?? null
+    if (!provider) return null
+    return {
+      ...aiSettings,
+      providerType: provider.providerType,
+      apiKey: provider.apiKey,
+      providerName: provider.name.trim() || 'AI Provider',
+      baseUrl: provider.baseUrl,
+      modelName: model.name.trim() || model.modelId,
+      modelId: model.modelId.trim(),
+    } satisfies AIProviderSettings
+  }
+
   const saveAISettingsAction = async (nextSettings?: AIProviderSettings) => {
     const target = nextSettings ?? aiSettings
     const saved = await api.saveAISettings(target)
@@ -2272,9 +2319,15 @@ export function WhiteboardPage() {
     await new Promise((resolve) => window.setTimeout(resolve, Math.max(0, action.time) * 1000))
   }
 
-  const queueToolEvent = (event: AgentToolEvent, sessionId = chatSessionRef.current) => {
+  const queueToolEvent = (
+    event: AgentToolEvent,
+    sessionId = chatSessionRef.current,
+    appendToChat = true,
+  ) => {
     if (!isCurrentChatSession(sessionId)) return
-    appendToolMessage(event)
+    if (appendToChat) {
+      appendToolMessage(event)
+    }
     toolEventChainRef.current = toolEventChainRef.current
       .then(() => {
         if (!isCurrentChatSession(sessionId)) return
@@ -2283,9 +2336,13 @@ export function WhiteboardPage() {
       .catch(() => undefined)
   }
 
-  const queueToolEvents = async (events: AgentToolEvent[], sessionId = chatSessionRef.current) => {
+  const queueToolEvents = async (
+    events: AgentToolEvent[],
+    sessionId = chatSessionRef.current,
+    appendToChat = true,
+  ) => {
     for (const event of events) {
-      queueToolEvent(event, sessionId)
+      queueToolEvent(event, sessionId, appendToChat)
     }
     await toolEventChainRef.current
   }
@@ -2341,13 +2398,14 @@ export function WhiteboardPage() {
       loading: false,
       anchorWorld,
       anchorScreen: screenPoint,
+      modelId: selectedChatModelId,
     })
   }
 
   const runInlineAgent = async () => {
     if (!activeBoardId || !inlineAgent?.prompt.trim()) return
     const prompt = inlineAgent.prompt.trim()
-    const targetSettings = buildSelectedAISettings()
+    const targetSettings = buildAISettingsForModel(inlineAgent.modelId)
     if (!targetSettings) {
       setStatusMessage('Select a valid model/provider pair in settings.')
       return
@@ -2365,7 +2423,6 @@ export function WhiteboardPage() {
       aiSettings.apiKey !== targetSettings.apiKey
     const inlinePrompt = `${prompt}\n\nInline insertion anchor: Prefer placing new or moved elements near absolute board coordinates (${Math.round(inlineAgent.anchorWorld.x)}, ${Math.round(inlineAgent.anchorWorld.y)}), unless the user explicitly asks for another location.`
     const conversationHistory = buildConversationHistory(selectedChatModel?.contextSize ?? 128000, inlinePrompt)
-    const requestStartedAt = Date.now()
 
     setInlineAgent((prev) => (prev ? { ...prev, loading: true } : prev))
     try {
@@ -2375,6 +2432,7 @@ export function WhiteboardPage() {
       const result: AgentBuildResponse = await api.buildWithAgent({
         boardId: activeBoardId,
         prompt: inlinePrompt,
+        mode: 'insert',
         selectedElementId: selectedElementId ?? undefined,
         viewOrigin: { x: viewport.x, y: viewport.y },
         viewBounds: visibleWorldRect,
@@ -2392,50 +2450,11 @@ export function WhiteboardPage() {
           ),
         )
       }
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: createLocalId('msg'),
-          role: 'user',
-          content: prompt,
-          createdAt: new Date().toISOString(),
-          order: nextChatOrder(),
-        },
-        {
-          id: createLocalId('msg'),
-          role: 'thought',
-          content: `Thought for ${(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000)).toFixed(1)}s`,
-          createdAt: new Date().toISOString(),
-          order: nextChatOrder(),
-          status: 'done',
-        },
-      ])
-      await queueToolEvents(result.toolEvents)
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: createLocalId('msg'),
-          role: 'assistant',
-          content: result.message,
-          createdAt: new Date().toISOString(),
-          order: nextChatOrder(),
-          status: 'done',
-        },
-      ])
+      await queueToolEvents(result.toolEvents, chatSessionRef.current, false)
       setStatusMessage('Inline build completed')
       closeInlineAgent()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Inline agent request failed.'
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: createLocalId('msg'),
-          role: 'error',
-          content: message,
-          createdAt: new Date().toISOString(),
-          order: nextChatOrder(),
-        },
-      ])
       setStatusMessage(message)
       setInlineAgent((prev) => (prev ? { ...prev, loading: false } : prev))
     }
@@ -2902,7 +2921,7 @@ export function WhiteboardPage() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <Sparkles size={18} />
+          
           <div>
             <strong>Whiteboard Pro</strong>
             <span>{statusMessage}</span>
@@ -2943,7 +2962,7 @@ export function WhiteboardPage() {
             <Settings2 size={16} /> Settings
           </button>
           <button onClick={() => setAiOpen((value) => !value)}>
-            {aiOpen ? <SidebarClose size={16} /> : <SidebarOpen size={16} />} AI
+            <Sparkles size={16} /> Agent
           </button>
         </div>
       </header>
@@ -2977,7 +2996,9 @@ export function WhiteboardPage() {
               </button>
             </div>
             <div className="toolbar-tooltip" data-tooltip="Center View">
-              <button onClick={resetView}>Center</button>
+              <button onClick={resetView}>
+                <SquarePlus size={14} />
+              </button>
             </div>
             {tool === 'code' || tool === 'monaco' || selectedCodeElement || selectedMonacoElement ? (
               <label className="toolbar-select" title="Editor language">
@@ -2993,9 +3014,10 @@ export function WhiteboardPage() {
                           return {
                             ...item,
                             language: value,
-                            updatedAt: new Date().toISOString(),
-                          }
-                        }
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
                         if (selectedCodeElement && item.id === selectedCodeElement.id && item.type === 'code') {
                           return {
                             ...item,
@@ -3222,11 +3244,7 @@ export function WhiteboardPage() {
                 </label>
               </>
             ) : null}
-            <span className="canvas-toolbar-meta">
-              {pointerWorld
-                ? `X ${Math.round(pointerWorld.x)}  Y ${Math.round(pointerWorld.y)}`
-                : 'X -  Y -'}
-            </span>
+
             <span className="canvas-toolbar-meta">
               Canvas {sizeFormatter.format(CANVAS_WIDTH)} x {sizeFormatter.format(CANVAS_HEIGHT)}
             </span>
@@ -3359,9 +3377,18 @@ export function WhiteboardPage() {
                   }}
                 />
                 <div className="inline-agent-toolbar">
-                  <span>
-                    X {Math.round(inlineAgent.anchorWorld.x)} Y {Math.round(inlineAgent.anchorWorld.y)}
-                  </span>
+                  <CustomDropdown
+                    className="inline-agent-model-dropdown"
+                    value={inlineAgent.modelId}
+                    onChange={(value) =>
+                      setInlineAgent((prev) => (prev ? { ...prev, modelId: value } : prev))
+                    }
+                    options={modelPresets.map((model) => ({
+                      value: model.id,
+                      label: model.name,
+                    }))}
+                    placeholder="Model"
+                  />
                   <button type="button" onClick={() => void runInlineAgent()} disabled={inlineAgent.loading}>
                     <Send size={15} />
                     Insert
@@ -3391,6 +3418,7 @@ export function WhiteboardPage() {
                   !drag &&
                   ((selected &&
                     (element.type === 'iframe' ||
+                      element.type === 'html' ||
                       element.type === 'video' ||
                       element.type === 'file' ||
                       element.type === 'code' ||
@@ -3512,6 +3540,14 @@ export function WhiteboardPage() {
                     {element.type === 'rectangle' ? renderRectangleSvg(element) : null}
                     {element.type === 'ellipse' ? renderEllipseSvg(element) : null}
                     {element.type === 'iframe' ? <iframe src={element.src} title={element.title} loading="lazy" /> : null}
+                    {element.type === 'html' ? (
+                      <div
+                        className="html-block"
+                        dangerouslySetInnerHTML={{ __html: element.html }}
+                        onPointerDown={(event) => selected && event.stopPropagation()}
+                        style={{ width: '100%', height: '100%', overflow: 'auto', backgroundColor: 'white' }}
+                      />
+                    ) : null}
                     {(element.type === 'image' || element.type === 'video') && element.src ? (
                       element.type === 'image' ? <img src={element.src} alt={element.name} /> : <video src={element.src} controls />
                     ) : null}
@@ -3539,7 +3575,10 @@ export function WhiteboardPage() {
                           />
                         ) : (
                           <pre className="code-block-pre">
-                            <code>{element.code}</code>
+                            <code
+                              className={`hljs language-${element.language}`}
+                              dangerouslySetInnerHTML={{ __html: renderCodeToHtml(element.code, element.language) }}
+                            />
                           </pre>
                         )}
                       </div>
@@ -4004,7 +4043,7 @@ export function WhiteboardPage() {
         {aiOpen ? (
           <aside className="ai-panel open">
           <div className="ai-head">
-            <h2>AI Chat</h2>
+            <h2>Agent</h2>
             <button
               type="button"
               className="new-chat-btn"
@@ -4062,7 +4101,7 @@ export function WhiteboardPage() {
             <textarea
               value={agentPrompt}
               onChange={(event) => setAgentPrompt(event.target.value)}
-              placeholder={agentMode === 'chat' ? 'Describe what you want to ask...' : 'Build, Edit and Delete...'}
+              placeholder={agentMode === 'chat' ? 'Ask about your board...' : 'Build, Edit and Delete...'}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                   event.preventDefault()
@@ -4071,14 +4110,14 @@ export function WhiteboardPage() {
               }}
             />
 
-            <div className="chat-compose-toolbar">
-              <div className="chat-compose-left">
-                <CustomDropdown
-                  className="compose-mode-dropdown"
-                  value={agentMode}
-                  onChange={(value) => setAgentMode(value as AgentMode)}
-                  options={[
-                    { value: 'chat', label: 'Ask' },
+              <div className="chat-compose-toolbar">
+                <div className="chat-compose-left">
+                  <CustomDropdown
+                    className="compose-mode-dropdown"
+                    value={agentMode}
+                    onChange={(value) => setAgentMode(value as AgentMode)}
+                    options={[
+                      { value: 'chat', label: 'Ask' },
                     { value: 'build', label: 'Build' },
                   ]}
                 />
@@ -4111,33 +4150,22 @@ export function WhiteboardPage() {
                 <p>Global workspace preferences</p>
               </div>
               <button
-                className={settingsSection === 'workspace' ? 'settings-nav-item active' : 'settings-nav-item'}
-                onClick={() => setSettingsSection('workspace')}
-              >
-                Workspace
-              </button>
-              <button
-                className={settingsSection === 'ai' ? 'settings-nav-item active' : 'settings-nav-item'}
+                className="settings-nav-item active"
                 onClick={() => setSettingsSection('ai')}
               >
-                AI
+                AI Features
               </button>
             </aside>
             <section className="settings-content">
               <div className="settings-content-head">
-                <h3>{settingsSection === 'ai' ? 'AI Settings' : 'Workspace Settings'}</h3>
+                <h1 className="settings-title">AI Settings</h1>
                 <button className="settings-close-btn" onClick={() => setSettingsOpen(false)}>
                   <ChevronLeft size={14} /> Back to board
                 </button>
               </div>
 
-              {settingsSection === 'workspace' ? (
-                <div className="settings-placeholder">
-                  <p>Workspace settings can be added here later.</p>
-                </div>
-              ) : (
-                <div className="settings-section-stack">
-                  <p>Manage provider and model lists. API keys are stored per provider.</p>
+              <div className="settings-section-stack">
+                <p>Manage provider and model lists.</p>
 
                   <section className="ai-config-section">
                     <div className="ai-config-head">
@@ -4293,7 +4321,6 @@ export function WhiteboardPage() {
                     </button>
                   </div>
                 </div>
-              )}
             </section>
           </div>
         </div>

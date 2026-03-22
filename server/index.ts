@@ -242,6 +242,7 @@ app.post('/api/agent/build', async (req, res) => {
       settings,
       board,
       payload.prompt,
+      payload.mode === 'insert' ? 'insert' : 'build',
       payload.selectedElementId,
       payload.viewOrigin,
       payload.viewBounds,
