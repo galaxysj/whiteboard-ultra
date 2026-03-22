@@ -87,6 +87,13 @@ type AgentCursorState = {
   x: number
   y: number
 }
+type InlineAgentComposerState = {
+  open: boolean
+  prompt: string
+  loading: boolean
+  anchorWorld: Point
+  anchorScreen: Point
+}
 type AgentMode = 'chat' | 'build'
 type ChatMessage = {
   id: string
@@ -1014,6 +1021,7 @@ export function WhiteboardPage() {
   const penCanvasRef = useRef<HTMLCanvasElement>(null)
   const assetInputRef = useRef<HTMLInputElement>(null)
   const editingTextRef = useRef<HTMLTextAreaElement | null>(null)
+  const inlineAgentInputRef = useRef<HTMLTextAreaElement | null>(null)
   const chatWindowRef = useRef<HTMLDivElement | null>(null)
   const elementsRef = useRef<BoardElement[]>([])
   const dragRef = useRef<DragState>(null)
@@ -1027,6 +1035,7 @@ export function WhiteboardPage() {
   const chatSessionRef = useRef(0)
   const selectedElementIdRef = useRef<string | null>(null)
   const pointerWorldRef = useRef<Point | null>(null)
+  const pointerScreenRef = useRef<Point | null>(null)
   const editingTextIdRef = useRef<string | null>(null)
   const copiedElementRef = useRef<BoardElement | null>(null)
 
@@ -1077,6 +1086,7 @@ export function WhiteboardPage() {
   const [codeLanguage, setCodeLanguage] = useState('javascript')
   const [graphExpressionDrafts, setGraphExpressionDrafts] = useState<string[]>([])
   const [agentCursor, setAgentCursor] = useState<AgentCursorState>({ visible: false, x: 0, y: 0 })
+  const [inlineAgent, setInlineAgent] = useState<InlineAgentComposerState | null>(null)
   const chatMessageOrderRef = useRef(0)
 
   const activeBoard = useMemo(
@@ -1295,6 +1305,13 @@ export function WhiteboardPage() {
   }, [editingTextId, elements])
 
   useEffect(() => {
+    if (!inlineAgent?.open) return
+    window.requestAnimationFrame(() => {
+      inlineAgentInputRef.current?.focus()
+    })
+  }, [inlineAgent])
+
+  useEffect(() => {
     const node = chatWindowRef.current
     if (!node) return
     node.scrollTop = node.scrollHeight
@@ -1317,6 +1334,19 @@ export function WhiteboardPage() {
         if (isTypingTarget(event.target)) return
         event.preventDefault()
         setAiOpen((value) => !value)
+        return
+      }
+
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'i') {
+        if (isTyping) return
+        event.preventDefault()
+        openInlineAgent()
+        return
+      }
+
+      if (event.key === 'Escape' && inlineAgent) {
+        event.preventDefault()
+        closeInlineAgent()
         return
       }
 
@@ -1362,7 +1392,7 @@ export function WhiteboardPage() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [viewport.x, viewport.y, viewport.zoom])
+  }, [inlineAgent, viewport.x, viewport.y, viewport.zoom])
 
   useEffect(() => {
     const clampCurrentViewport = () => {
@@ -1677,6 +1707,7 @@ export function WhiteboardPage() {
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const samples = eventToWorldPoints(event)
     const point = samples[samples.length - 1]
+    pointerScreenRef.current = { x: event.clientX, y: event.clientY }
     setPointerWorld(point)
     const activeDrag = dragRef.current
     if (tool === 'eraser-stroke' || draft?.type === 'eraser') {
@@ -1939,6 +1970,7 @@ export function WhiteboardPage() {
 
   const onPointerLeave = (event: React.PointerEvent<HTMLDivElement>) => {
     onPointerUp(event)
+    pointerScreenRef.current = null
     setPointerWorld(null)
     setEraserPointer(null)
   }
@@ -2277,6 +2309,136 @@ export function WhiteboardPage() {
       })
     }
     return selected.reverse()
+  }
+
+  const closeInlineAgent = () => {
+    setInlineAgent(null)
+  }
+
+  const openInlineAgent = () => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    const screenPoint =
+      pointerScreenRef.current && rect
+        ? {
+            x: clamp(pointerScreenRef.current.x - rect.left, 16, Math.max(16, rect.width - 16)),
+            y: clamp(pointerScreenRef.current.y - rect.top, 16, Math.max(16, rect.height - 16)),
+          }
+        : {
+            x: (rect?.width ?? 0) / 2,
+            y: (rect?.height ?? 0) / 2,
+          }
+    const fallbackAnchor = {
+      x: viewport.x + (rect?.width ?? 0) / Math.max(1, viewport.zoom) / 2,
+      y: viewport.y + (rect?.height ?? 0) / Math.max(1, viewport.zoom) / 2,
+    }
+    const anchorWorld =
+      pointerScreenRef.current && rect
+        ? screenToWorld(pointerScreenRef.current.x, pointerScreenRef.current.y)
+        : pointerWorld ?? fallbackAnchor
+    setInlineAgent({
+      open: true,
+      prompt: '',
+      loading: false,
+      anchorWorld,
+      anchorScreen: screenPoint,
+    })
+  }
+
+  const runInlineAgent = async () => {
+    if (!activeBoardId || !inlineAgent?.prompt.trim()) return
+    const prompt = inlineAgent.prompt.trim()
+    const targetSettings = buildSelectedAISettings()
+    if (!targetSettings) {
+      setStatusMessage('Select a valid model/provider pair in settings.')
+      return
+    }
+    if (!targetSettings.apiKey.trim()) {
+      setStatusMessage('API key is required for the selected provider.')
+      return
+    }
+    const shouldSaveSettings =
+      aiSettings.providerType !== targetSettings.providerType ||
+      aiSettings.providerName !== targetSettings.providerName ||
+      aiSettings.baseUrl !== targetSettings.baseUrl ||
+      aiSettings.modelName !== targetSettings.modelName ||
+      aiSettings.modelId !== targetSettings.modelId ||
+      aiSettings.apiKey !== targetSettings.apiKey
+    const inlinePrompt = `${prompt}\n\nInline insertion anchor: Prefer placing new or moved elements near absolute board coordinates (${Math.round(inlineAgent.anchorWorld.x)}, ${Math.round(inlineAgent.anchorWorld.y)}), unless the user explicitly asks for another location.`
+    const conversationHistory = buildConversationHistory(selectedChatModel?.contextSize ?? 128000, inlinePrompt)
+    const requestStartedAt = Date.now()
+
+    setInlineAgent((prev) => (prev ? { ...prev, loading: true } : prev))
+    try {
+      if (shouldSaveSettings) {
+        await saveAISettingsAction(targetSettings)
+      }
+      const result: AgentBuildResponse = await api.buildWithAgent({
+        boardId: activeBoardId,
+        prompt: inlinePrompt,
+        selectedElementId: selectedElementId ?? undefined,
+        viewOrigin: { x: viewport.x, y: viewport.y },
+        viewBounds: visibleWorldRect,
+        screenshotDataUrl: undefined,
+        history: conversationHistory,
+      })
+      commitElements(result.elements)
+      if (result.boardUpdatedAt) {
+        syncBoardVersion(result.boardUpdatedAt)
+        setBoards((prev) =>
+          prev.map((board) =>
+            board.id === activeBoardId
+              ? { ...board, elements: result.elements, updatedAt: result.boardUpdatedAt as string }
+              : board,
+          ),
+        )
+      }
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: createLocalId('msg'),
+          role: 'user',
+          content: prompt,
+          createdAt: new Date().toISOString(),
+          order: nextChatOrder(),
+        },
+        {
+          id: createLocalId('msg'),
+          role: 'thought',
+          content: `Thought for ${(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000)).toFixed(1)}s`,
+          createdAt: new Date().toISOString(),
+          order: nextChatOrder(),
+          status: 'done',
+        },
+      ])
+      await queueToolEvents(result.toolEvents)
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: createLocalId('msg'),
+          role: 'assistant',
+          content: result.message,
+          createdAt: new Date().toISOString(),
+          order: nextChatOrder(),
+          status: 'done',
+        },
+      ])
+      setStatusMessage('Inline build completed')
+      closeInlineAgent()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Inline agent request failed.'
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: createLocalId('msg'),
+          role: 'error',
+          content: message,
+          createdAt: new Date().toISOString(),
+          order: nextChatOrder(),
+        },
+      ])
+      setStatusMessage(message)
+      setInlineAgent((prev) => (prev ? { ...prev, loading: false } : prev))
+    }
   }
 
   const runAgent = async () => {
@@ -3161,6 +3323,50 @@ export function WhiteboardPage() {
                 }}
               >
                 <img src={agentCursorSvg} alt="" draggable={false} />
+              </div>
+            ) : null}
+            {inlineAgent?.open ? (
+              <div
+                className="inline-agent-compose"
+                style={{
+                  left: clamp(inlineAgent.anchorScreen.x - 18, 12, Math.max(12, (canvasRef.current?.clientWidth ?? 0) - 356)),
+                  top: clamp(inlineAgent.anchorScreen.y - 22, 12, Math.max(12, (canvasRef.current?.clientHeight ?? 0) - 208)),
+                }}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <div className="inline-agent-head">
+                  <span>Inline Build</span>
+                  <button type="button" className="inline-agent-close" onClick={closeInlineAgent} aria-label="Close inline AI">
+                    <CircleX size={14} />
+                  </button>
+                </div>
+                <textarea
+                  ref={inlineAgentInputRef}
+                  value={inlineAgent.prompt}
+                  onChange={(event) =>
+                    setInlineAgent((prev) => (prev ? { ...prev, prompt: event.target.value } : prev))
+                  }
+                  placeholder="Describe what to insert here..."
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                      event.preventDefault()
+                      void runInlineAgent()
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      closeInlineAgent()
+                    }
+                  }}
+                />
+                <div className="inline-agent-toolbar">
+                  <span>
+                    X {Math.round(inlineAgent.anchorWorld.x)} Y {Math.round(inlineAgent.anchorWorld.y)}
+                  </span>
+                  <button type="button" onClick={() => void runInlineAgent()} disabled={inlineAgent.loading}>
+                    <Send size={15} />
+                    Insert
+                  </button>
+                </div>
               </div>
             ) : null}
             <canvas className="pen-layer" ref={penCanvasRef} />
