@@ -128,7 +128,7 @@ type ModelPreset = {
   modelId: string
   providerId: string
   stream: boolean
-  contextSize: number
+  contextSize: string
 }
 type DropdownOption = {
   value: string
@@ -275,6 +275,7 @@ const AI_MODEL_LIST_STORAGE_KEY = 'whiteboard.ai.model-list'
 
 const defaultProviderPresets: ProviderPreset[] = []
 const defaultModelPresets: ModelPreset[] = []
+const DEFAULT_CONTEXT_SIZE = 128000
 const CALCULATOR_WIDGET_MARKER = 'data-widget="embedded-calculator"'
 const CALCULATOR_EMBED_HTML = `<div ${CALCULATOR_WIDGET_MARKER} style="height:100%;display:grid;grid-template-rows:auto 1fr;gap:10px;padding:12px;border-radius:14px;background:linear-gradient(155deg,#f7fbff,#eef4fa);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;">
   <input data-role="display" value="0" readonly style="width:100%;height:46px;border:0;border-radius:10px;padding:0 12px;text-align:right;font-size:20px;font-weight:700;color:#173041;background:#ffffff;box-shadow:inset 0 0 0 1px rgba(23,48,65,.12);" />
@@ -354,14 +355,22 @@ const parseModelPresets = (raw: string | null) => {
         ...item,
         stream: typeof item?.stream === 'boolean' ? item.stream : false,
         contextSize:
-          typeof item?.contextSize === 'number' && Number.isFinite(item.contextSize) && item.contextSize > 0
-            ? item.contextSize
-            : 128000,
+          typeof item?.contextSize === 'string'
+            ? item.contextSize.replace(/\D/g, '')
+            : typeof item?.contextSize === 'number' && Number.isFinite(item.contextSize) && item.contextSize > 0
+              ? String(Math.trunc(item.contextSize))
+              : String(DEFAULT_CONTEXT_SIZE),
       }))
     return filtered
   } catch {
     return defaultModelPresets
   }
+}
+
+const normalizeContextSize = (value: string) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_CONTEXT_SIZE
+  return Math.max(1024, Math.trunc(parsed))
 }
 
 function CustomDropdown({
@@ -2614,7 +2623,7 @@ export function WhiteboardPage() {
         modelId: '',
         providerId,
         stream: false,
-        contextSize: 128000,
+        contextSize: String(DEFAULT_CONTEXT_SIZE),
       },
     ])
   }
@@ -2783,7 +2792,10 @@ export function WhiteboardPage() {
       aiSettings.modelId !== targetSettings.modelId ||
       aiSettings.apiKey !== targetSettings.apiKey
     const inlinePrompt = `${prompt}\n\nInline insertion anchor: Prefer placing new or moved elements near absolute board coordinates (${Math.round(inlineAgent.anchorWorld.x)}, ${Math.round(inlineAgent.anchorWorld.y)}), unless the user explicitly asks for another location.`
-    const conversationHistory = buildConversationHistory(selectedChatModel?.contextSize ?? 128000, inlinePrompt)
+    const conversationHistory = buildConversationHistory(
+      normalizeContextSize(selectedChatModel?.contextSize ?? ''),
+      inlinePrompt,
+    )
 
     setInlineAgent((prev) => (prev ? { ...prev, loading: true } : prev))
     try {
@@ -2841,7 +2853,10 @@ export function WhiteboardPage() {
       aiSettings.modelName !== targetSettings.modelName ||
       aiSettings.modelId !== targetSettings.modelId ||
       aiSettings.apiKey !== targetSettings.apiKey
-    const conversationHistory = buildConversationHistory(selectedChatModel?.contextSize ?? 128000, prompt)
+    const conversationHistory = buildConversationHistory(
+      normalizeContextSize(selectedChatModel?.contextSize ?? ''),
+      prompt,
+    )
 
     setAgentLoading(true)
     const requestStartedAt = Date.now()
@@ -4859,15 +4874,14 @@ export function WhiteboardPage() {
                             placeholder="Provider"
                           />
                           <input
-                            type="number"
-                            min={1024}
-                            step={1024}
+                            type="text"
+                            inputMode="numeric"
                             value={model.contextSize}
                             onChange={(event) =>
                               setModelPresets((prev) =>
                                 prev.map((item) =>
                                   item.id === model.id
-                                    ? { ...item, contextSize: Math.max(1024, Number(event.target.value) || 128000) }
+                                    ? { ...item, contextSize: event.target.value.replace(/\D/g, '') }
                                     : item,
                                 ),
                               )
