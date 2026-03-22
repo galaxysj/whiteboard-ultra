@@ -3294,7 +3294,7 @@ export function WhiteboardPage() {
         <div className="brand">
           
           <div>
-            <strong>Whiteboard Pro</strong>
+            <strong>Whiteboard Ultra</strong>
             <span>{statusMessage}</span>
           </div>
         </div>

@@ -240,7 +240,7 @@ export const createPlacedElement = (
     case 'monaco':
       return {
         ...baseElement('monaco', point.x, point.y, 520, 320, zIndex),
-        code: "function greet(name) {\n  return `Hello, ${name}`\n}\n\nconsole.log(greet('Whiteboard Pro'))",
+        code: "function greet(name) {\n  return `Hello, ${name}`\n}\n\nconsole.log(greet('Whiteboard Ultra'))",
         language: 'javascript',
         fill: '#eef1f4',
       } satisfies MonacoElement

@@ -317,5 +317,5 @@ app.use((_req, res) => {
 
 app.listen(port, host, () => {
   fs.mkdirSync(uploadsDir, { recursive: true })
-  console.log(`Whiteboard Pro API running on http://${host}:${port}`)
+  console.log(`Whiteboard Ultra API running on http://${host}:${port}`)
 })

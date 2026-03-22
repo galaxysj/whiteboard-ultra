@@ -1880,7 +1880,7 @@ const askToolsForGemini = [
 ]
 
 const defaultBuildSystemPrompt =
-  'You are Whiteboard Pro Build mode agent. Use tool calls to modify the board and provide a brief final summary.'
+  'You are Whiteboard Ultra Build mode agent. Use tool calls to modify the board and provide a brief final summary.'
 
 const finalizeBuildMessage = (message: string, operationCount: number) => {
   const normalized = message.trim()
@@ -1894,9 +1894,9 @@ const buildPromptPath = path.join(process.cwd(), 'system-build.md')
 const askPromptPath = path.join(process.cwd(), 'system-ask.md')
 const insertPromptPath = path.join(process.cwd(), 'system-insert.md')
 const defaultAskSystemPrompt =
-  'You are Whiteboard Pro assistant. Answer in concise English based on the provided whiteboard state only. If the board does not contain enough information, say so clearly.'
+  'You are Whiteboard Ultra assistant. Answer in concise English based on the provided whiteboard state only. If the board does not contain enough information, say so clearly.'
 const defaultInsertSystemPrompt =
-  'You are Whiteboard Pro Insert mode agent. Add exactly one new element with a tool call and provide a brief summary.'
+  'You are Whiteboard Ultra Insert mode agent. Add exactly one new element with a tool call and provide a brief summary.'
 
 export const getBuildSystemPrompt = () => {
   try {
