@@ -1844,7 +1844,7 @@ export function WhiteboardPage() {
           return
         }
         if (hitZone === 'right-body') {
-          const leftTip = { x: hit.x + COMPASS_LEFT_TIP.x, y: hit.y + COMPASS_LEFT_TIP.y }
+          const { leftTip } = getCompassGeometry(hit)
           const pointerAngle = normalizeAngle(radiansToDegrees(Math.atan2(point.y - leftTip.y, point.x - leftTip.x)))
           const nextDrag: DragState = {
             kind: 'compass-rotate',
@@ -2145,10 +2145,7 @@ export function WhiteboardPage() {
       })
     }
     if (activeDrag?.kind === 'compass-radius') {
-      const leftTip = {
-        x: activeDrag.original.x + COMPASS_LEFT_TIP.x,
-        y: activeDrag.original.y + COMPASS_LEFT_TIP.y,
-      }
+      const { leftTip } = getCompassGeometry(activeDrag.original as Extract<BoardElement, { type: 'compass' }>)
       const nextRadius = clamp(distance(leftTip, point), COMPASS_MIN_SPREAD, COMPASS_MAX_SPREAD)
       return setElements((prev) => {
         const next = prev.map((element) =>
@@ -3550,11 +3547,32 @@ export function WhiteboardPage() {
                   className={selectedCompassElement.flipped ? 'tool-button active' : 'tool-button'}
                   onClick={() => {
                     setElements((prev) => {
-                      const next = prev.map((element) =>
-                        element.id === selectedCompassElement.id && element.type === 'compass'
-                          ? { ...element, flipped: !element.flipped, updatedAt: new Date().toISOString() }
-                          : element,
-                      )
+                      const next = prev.map((element) => {
+                        if (element.id === selectedCompassElement.id && element.type === 'compass') {
+                          // Perform an "in-place" flip by keeping the Hinge at the same world coordinate
+                          const oldGeom = getCompassGeometry(element)
+                          const nextFlipped = !element.flipped
+                          const nextEndAngle = normalizeAngle(180 - element.endAngle)
+
+                          // Calculate how much we need to shift element.x/y to keep hinge steady
+                          // We pass the new state to getCompassGeometry to see where the hinge would land
+                          const temp = { ...element, flipped: nextFlipped, endAngle: nextEndAngle }
+                          const newGeom = getCompassGeometry(temp)
+
+                          const dx = oldGeom.hinge.x - newGeom.hinge.x
+                          const dy = oldGeom.hinge.y - newGeom.hinge.y
+
+                          return {
+                            ...element,
+                            flipped: nextFlipped,
+                            endAngle: nextEndAngle,
+                            x: element.x + dx,
+                            y: element.y + dy,
+                            updatedAt: new Date().toISOString(),
+                          }
+                        }
+                        return element
+                      })
                       elementsRef.current = next
                       return next
                     })
