@@ -138,6 +138,7 @@ type DropdownOption = {
   value: string
   label: string
 }
+type AppLanguage = 'en' | 'ko' | 'zh' | 'ja'
 type CanvasToolId = ToolId | 'drag-select' | 'eraser-stroke' | 'dot' | 'calculator'
 type DraftState =
   | { type: 'shape'; tool: 'line' | 'arrow' | 'rectangle' | 'ellipse'; start: Point; end: Point }
@@ -276,6 +277,442 @@ const defaultAISettings: AIProviderSettings = {
 }
 const AI_PROVIDER_LIST_STORAGE_KEY = 'whiteboard.ai.provider-list'
 const AI_MODEL_LIST_STORAGE_KEY = 'whiteboard.ai.model-list'
+const UI_LANGUAGE_STORAGE_KEY = 'whiteboard.ui.language'
+const SUPPORTED_LANGUAGES: AppLanguage[] = ['en', 'ko', 'zh', 'ja']
+const LANGUAGE_OPTIONS: Array<{ value: AppLanguage; label: string }> = [
+  { value: 'en', label: 'English' },
+  { value: 'ko', label: '한국어' },
+  { value: 'zh', label: '中文' },
+  { value: 'ja', label: '日本語' },
+]
+const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> = {
+  ko: {
+    'Loading workspace...': '작업공간 불러오는 중...',
+    'Workspace ready': '작업공간 준비 완료',
+    Saved: '저장됨',
+    'Saved now': '즉시 저장됨',
+    New: '새로 만들기',
+    Rename: '이름 변경',
+    Delete: '삭제',
+    Save: '저장',
+    Settings: '설정',
+    Agent: '에이전트',
+    Boards: '보드',
+    Undo: '실행 취소',
+    Redo: '다시 실행',
+    'Clear All': '모두 지우기',
+    'Zoom In': '확대',
+    'Zoom Out': '축소',
+    'Center View': '중앙으로 이동',
+    'Editor language': '에디터 언어',
+    'Eraser size': '지우개 크기',
+    'Erase pen strokes only': '펜 스트로크만 지우기',
+    'Pen Only': '펜 전용',
+    'Pen thickness': '펜 굵기',
+    'Pen color': '펜 색상',
+    'Text size': '텍스트 크기',
+    'Compass stroke thickness': '컴퍼스 선 두께',
+    'Compass stroke color': '컴퍼스 선 색상',
+    'Flip compass': '컴퍼스 뒤집기',
+    Flip: '뒤집기',
+    'Shape thickness': '도형 선 두께',
+    'Toggle shape fill': '도형 채우기 전환',
+    Fill: '채우기',
+    'Shape color': '도형 색상',
+    'Whiteboard tools': '화이트보드 도구',
+    'Go Back': '뒤로 가기',
+    'Inline Build': '인라인 빌드',
+    'Close inline AI': '인라인 AI 닫기',
+    'Describe what to insert here...': '여기에 무엇을 넣을지 설명하세요...',
+    Model: '모델',
+    Insert: '삽입',
+    Open: '열기',
+    Text: '텍스트',
+    Markdown: '마크다운',
+    'Add formula': '수식 추가',
+    'Remove formula': '수식 제거',
+    'New chat': '새 채팅',
+    'Start by asking agent to build something...': '에이전트에게 만들 작업을 먼저 요청해 보세요...',
+    'Thinking for {seconds}s': '{seconds}초 동안 생각 중',
+    Close: '닫기',
+    'Copy text': '텍스트 복사',
+    Retry: '다시 시도',
+    'Copied to clipboard': '클립보드에 복사됨',
+    'Ask about your board...': '보드에 대해 물어보세요...',
+    'Build, Edit and Delete...': '생성, 수정, 삭제를 요청하세요...',
+    Ask: '질문',
+    Build: '빌드',
+    'AI Features': 'AI 기능',
+    'AI Settings': 'AI 설정',
+    'Back to board': '보드로 돌아가기',
+    'Manage provider and model lists.': '제공자 및 모델 목록을 관리합니다.',
+    'Provider List': '제공자 목록',
+    Add: '추가',
+    'Provider name': '제공자 이름',
+    Compatible: '호환',
+    'Base URL (compatible)': 'Base URL (호환)',
+    'Base URL available for Compatible only': 'Base URL은 호환 타입에서만 사용 가능',
+    'API key': 'API 키',
+    'Model List': '모델 목록',
+    'Model name': '모델 이름',
+    'Model ID': '모델 ID',
+    Provider: '제공자',
+    'Context size': '컨텍스트 크기',
+    'Enable real-time streaming': '실시간 스트리밍 사용',
+    Stream: '스트림',
+    'Show reasoning/thoughts if supported': '지원 시 추론/사고 표시',
+    Reasoning: '추론',
+    Cancel: '취소',
+    'Save AI settings': 'AI 설정 저장',
+    'Global workspace preferences': '전역 작업공간 설정',
+    Language: '언어',
+    'Open a board first.': '먼저 보드를 열어주세요.',
+    'Board created': '보드가 생성되었습니다',
+    'Board renamed': '보드 이름이 변경되었습니다',
+    'Board deleted': '보드가 삭제되었습니다',
+    'Board cleared': '보드가 초기화되었습니다',
+    'AI settings saved': 'AI 설정이 저장되었습니다',
+    'Add a provider first.': '먼저 제공자를 추가하세요.',
+    'New Board': '새 보드',
+    'Create board': '보드 만들기',
+    Create: '생성',
+    'Delete Board': '보드 삭제',
+    'Delete "{name}" permanently?': '"{name}" 보드를 영구 삭제할까요?',
+    'Opened "{name}"': '"{name}" 보드를 열었습니다',
+    'Clear all elements?': '모든 요소를 지울까요?',
+    'This will remove every element on the current board.': '현재 보드의 모든 요소가 삭제됩니다.',
+    'Choose a {tool} file to insert at the selected position.': '선택한 위치에 삽입할 {tool} 파일을 고르세요.',
+    'Select a valid model/provider pair.': '유효한 모델/제공자 조합을 선택하세요.',
+    'Model ID is required.': '모델 ID는 필수입니다.',
+    'API key is required for the selected provider.': '선택한 제공자에 API 키가 필요합니다.',
+    'Select a valid model/provider pair in settings.': '설정에서 유효한 모델/제공자 조합을 선택하세요.',
+    'Inline build completed': '인라인 빌드 완료',
+    'Embed URL': 'URL 임베드',
+    'Paste an iframe or video embed URL.': 'iframe 또는 비디오 임베드 URL을 붙여넣으세요.',
+    'Embedded frame': '임베드 프레임',
+    'Embed HTML': 'HTML 임베드',
+    'Enter custom HTML code to embed.': '임베드할 사용자 정의 HTML 코드를 입력하세요.',
+    'enter a Snippet of a HTML...': 'HTML 스니펫을 입력하세요...',
+    'Insert LaTeX': 'LaTeX 삽입',
+    'Enter a LaTeX expression.': 'LaTeX 수식을 입력하세요.',
+    'Enter a LaTex expression...': 'LaTeX 수식을 입력하세요...',
+    'Enter a board name.': '보드 이름을 입력하세요.',
+    'Update the board name.': '보드 이름을 수정하세요.',
+    'Write Markdown here': '여기에 Markdown을 입력하세요',
+    'Type here': '여기에 입력하세요',
+    OK: '확인',
+    Select: '선택',
+    Pen: '펜',
+    Dot: '점',
+    Eraser: '지우개',
+    Line: '선',
+    Arrow: '화살표',
+    Rectangle: '사각형',
+    Circle: '원',
+    Embed: '임베드',
+    'Custom HTML': '사용자 HTML',
+    Image: '이미지',
+    Video: '비디오',
+    'Other Files': '기타 파일',
+    'Normal Code': '일반 코드',
+    'Monaco Editor': 'Monaco 에디터',
+    'Drawing Compass': '컴퍼스',
+    Calculator: '계산기',
+    Graph: '그래프',
+    LaTeX: 'LaTeX',
+    Ruler: '자',
+    Protractor: '각도기',
+    'Drag Select': '드래그 선택',
+    'Pen tools': '펜 도구',
+    'Embed tools': '임베드 도구',
+    'Text tools': '텍스트 도구',
+    'Math tools': '수학 도구',
+  },
+  zh: {
+    'Loading workspace...': '正在加载工作区...',
+    'Workspace ready': '工作区已就绪',
+    Saved: '已保存',
+    'Saved now': '刚刚已保存',
+    New: '新建',
+    Rename: '重命名',
+    Delete: '删除',
+    Save: '保存',
+    Settings: '设置',
+    Agent: '智能助手',
+    Boards: '画板',
+    Undo: '撤销',
+    Redo: '重做',
+    'Clear All': '全部清除',
+    'Zoom In': '放大',
+    'Zoom Out': '缩小',
+    'Center View': '居中视图',
+    'Editor language': '编辑器语言',
+    'Eraser size': '橡皮擦大小',
+    'Erase pen strokes only': '仅擦除笔迹',
+    'Pen Only': '仅钢笔',
+    'Pen thickness': '笔粗细',
+    'Pen color': '笔颜色',
+    'Text size': '文字大小',
+    'Compass stroke thickness': '圆规线宽',
+    'Compass stroke color': '圆规颜色',
+    'Flip compass': '翻转圆规',
+    Flip: '翻转',
+    'Shape thickness': '形状线宽',
+    'Toggle shape fill': '切换填充',
+    Fill: '填充',
+    'Shape color': '形状颜色',
+    'Whiteboard tools': '白板工具',
+    'Go Back': '返回',
+    'Inline Build': '内联生成',
+    'Close inline AI': '关闭内联 AI',
+    'Describe what to insert here...': '描述要在此处插入的内容...',
+    Model: '模型',
+    Insert: '插入',
+    Open: '打开',
+    Text: '文本',
+    Markdown: 'Markdown',
+    'Add formula': '添加公式',
+    'Remove formula': '删除公式',
+    'New chat': '新对话',
+    'Start by asking agent to build something...': '请先向助手描述要构建的内容...',
+    'Thinking for {seconds}s': '思考中 {seconds} 秒',
+    Close: '关闭',
+    'Copy text': '复制文本',
+    Retry: '重试',
+    'Copied to clipboard': '已复制到剪贴板',
+    'Ask about your board...': '询问关于画板的问题...',
+    'Build, Edit and Delete...': '生成、编辑或删除...',
+    Ask: '提问',
+    Build: '构建',
+    'AI Features': 'AI 功能',
+    'AI Settings': 'AI 设置',
+    'Back to board': '返回画板',
+    'Manage provider and model lists.': '管理服务商与模型列表。',
+    'Provider List': '服务商列表',
+    Add: '添加',
+    'Provider name': '服务商名称',
+    Compatible: '兼容',
+    'Base URL (compatible)': 'Base URL（兼容）',
+    'Base URL available for Compatible only': 'Base URL 仅适用于兼容模式',
+    'API key': 'API 密钥',
+    'Model List': '模型列表',
+    'Model name': '模型名称',
+    'Model ID': '模型 ID',
+    Provider: '服务商',
+    'Context size': '上下文长度',
+    'Enable real-time streaming': '启用实时流式输出',
+    Stream: '流式',
+    'Show reasoning/thoughts if supported': '支持时显示推理/思考',
+    Reasoning: '推理',
+    Cancel: '取消',
+    'Save AI settings': '保存 AI 设置',
+    'Global workspace preferences': '全局工作区偏好',
+    Language: '语言',
+    'Open a board first.': '请先打开一个画板。',
+    'Board created': '画板已创建',
+    'Board renamed': '画板已重命名',
+    'Board deleted': '画板已删除',
+    'Board cleared': '画板已清空',
+    'AI settings saved': 'AI 设置已保存',
+    'Add a provider first.': '请先添加服务商。',
+    'New Board': '新建画板',
+    'Create board': '创建画板',
+    Create: '创建',
+    'Delete Board': '删除画板',
+    'Delete "{name}" permanently?': '确定永久删除「{name}」？',
+    'Opened "{name}"': '已打开「{name}」',
+    'Clear all elements?': '清除所有元素？',
+    'This will remove every element on the current board.': '将移除当前画板上的所有元素。',
+    'Choose a {tool} file to insert at the selected position.': '选择要插入到所选位置的 {tool} 文件。',
+    'Select a valid model/provider pair.': '请选择有效的模型与服务商组合。',
+    'Model ID is required.': '必须填写模型 ID。',
+    'API key is required for the selected provider.': '所选服务商需要 API 密钥。',
+    'Select a valid model/provider pair in settings.': '请在设置中选择有效的模型与服务商组合。',
+    'Inline build completed': '内联生成完成',
+    'Embed URL': '嵌入 URL',
+    'Paste an iframe or video embed URL.': '粘贴 iframe 或视频嵌入 URL。',
+    'Embedded frame': '嵌入框架',
+    'Embed HTML': '嵌入 HTML',
+    'Enter custom HTML code to embed.': '输入要嵌入的自定义 HTML。',
+    'enter a Snippet of a HTML...': '输入一段 HTML...',
+    'Insert LaTeX': '插入 LaTeX',
+    'Enter a LaTeX expression.': '输入 LaTeX 表达式。',
+    'Enter a LaTex expression...': '输入 LaTeX 表达式...',
+    'Enter a board name.': '输入画板名称。',
+    'Update the board name.': '更新画板名称。',
+    'Write Markdown here': '在此编写 Markdown',
+    'Type here': '在此输入',
+    OK: '确定',
+    Select: '选择',
+    Pen: '钢笔',
+    Dot: '点',
+    Eraser: '橡皮擦',
+    Line: '直线',
+    Arrow: '箭头',
+    Rectangle: '矩形',
+    Circle: '圆形',
+    Embed: '嵌入',
+    'Custom HTML': '自定义 HTML',
+    Image: '图片',
+    Video: '视频',
+    'Other Files': '其他文件',
+    'Normal Code': '普通代码',
+    'Monaco Editor': 'Monaco 编辑器',
+    'Drawing Compass': '圆规',
+    Calculator: '计算器',
+    Graph: '图表',
+    LaTeX: 'LaTeX',
+    Ruler: '直尺',
+    Protractor: '量角器',
+    'Drag Select': '框选',
+    'Pen tools': '笔工具',
+    'Embed tools': '嵌入工具',
+    'Text tools': '文本工具',
+    'Math tools': '数学工具',
+  },
+  ja: {
+    'Loading workspace...': 'ワークスペースを読み込み中...',
+    'Workspace ready': 'ワークスペースの準備が完了しました',
+    Saved: '保存しました',
+    'Saved now': '保存しました',
+    New: '新規',
+    Rename: '名前を変更',
+    Delete: '削除',
+    Save: '保存',
+    Settings: '設定',
+    Agent: 'エージェント',
+    Boards: 'ボード',
+    Undo: '元に戻す',
+    Redo: 'やり直す',
+    'Clear All': 'すべてクリア',
+    'Zoom In': '拡大',
+    'Zoom Out': '縮小',
+    'Center View': '中央に表示',
+    'Editor language': 'エディタ言語',
+    'Eraser size': '消しゴムサイズ',
+    'Erase pen strokes only': 'ペンの線のみ消去',
+    'Pen Only': 'ペンのみ',
+    'Pen thickness': 'ペンの太さ',
+    'Pen color': 'ペンの色',
+    'Text size': 'テキストサイズ',
+    'Compass stroke thickness': 'コンパス線の太さ',
+    'Compass stroke color': 'コンパス線の色',
+    'Flip compass': 'コンパスを反転',
+    Flip: '反転',
+    'Shape thickness': '図形の線の太さ',
+    'Toggle shape fill': '塗りつぶしの切り替え',
+    Fill: '塗り',
+    'Shape color': '図形の色',
+    'Whiteboard tools': 'ホワイトボードツール',
+    'Go Back': '戻る',
+    'Inline Build': 'インライン生成',
+    'Close inline AI': 'インラインAIを閉じる',
+    'Describe what to insert here...': 'ここに挿入する内容を説明してください...',
+    Model: 'モデル',
+    Insert: '挿入',
+    Open: '開く',
+    Text: 'テキスト',
+    Markdown: 'Markdown',
+    'Add formula': '数式を追加',
+    'Remove formula': '数式を削除',
+    'New chat': '新しいチャット',
+    'Start by asking agent to build something...': 'エージェントに作りたいものを聞いてみましょう...',
+    'Thinking for {seconds}s': '{seconds} 秒間考えています',
+    Close: '閉じる',
+    'Copy text': 'テキストをコピー',
+    Retry: '再試行',
+    'Copied to clipboard': 'クリップボードにコピーしました',
+    'Ask about your board...': 'ボードについて質問...',
+    'Build, Edit and Delete...': '作成・編集・削除の指示...',
+    Ask: '質問',
+    Build: 'ビルド',
+    'AI Features': 'AI機能',
+    'AI Settings': 'AI設定',
+    'Back to board': 'ボードに戻る',
+    'Manage provider and model lists.': 'プロバイダーとモデル一覧を管理します。',
+    'Provider List': 'プロバイダー一覧',
+    Add: '追加',
+    'Provider name': 'プロバイダー名',
+    Compatible: '互換',
+    'Base URL (compatible)': 'Base URL（互換）',
+    'Base URL available for Compatible only': 'Base URLは互換モードでのみ使用できます',
+    'API key': 'APIキー',
+    'Model List': 'モデル一覧',
+    'Model name': 'モデル名',
+    'Model ID': 'モデルID',
+    Provider: 'プロバイダー',
+    'Context size': 'コンテキストサイズ',
+    'Enable real-time streaming': 'リアルタイムストリーミングを有効化',
+    Stream: 'ストリーム',
+    'Show reasoning/thoughts if supported': '対応時は推論・思考を表示',
+    Reasoning: '推論',
+    Cancel: 'キャンセル',
+    'Save AI settings': 'AI設定を保存',
+    'Global workspace preferences': 'ワークスペース全体の設定',
+    Language: '言語',
+    'Open a board first.': '先にボードを開いてください。',
+    'Board created': 'ボードを作成しました',
+    'Board renamed': 'ボード名を変更しました',
+    'Board deleted': 'ボードを削除しました',
+    'Board cleared': 'ボードをクリアしました',
+    'AI settings saved': 'AI設定を保存しました',
+    'Add a provider first.': '先にプロバイダーを追加してください。',
+    'New Board': '新しいボード',
+    'Create board': 'ボードを作成',
+    Create: '作成',
+    'Delete Board': 'ボードを削除',
+    'Delete "{name}" permanently?': '「{name}」を完全に削除しますか？',
+    'Opened "{name}"': '「{name}」を開きました',
+    'Clear all elements?': 'すべての要素を削除しますか？',
+    'This will remove every element on the current board.': '現在のボード上のすべての要素が削除されます。',
+    'Choose a {tool} file to insert at the selected position.': '選択した位置に挿入する {tool} ファイルを選んでください。',
+    'Select a valid model/provider pair.': '有効なモデルとプロバイダーの組み合わせを選んでください。',
+    'Model ID is required.': 'モデルIDは必須です。',
+    'API key is required for the selected provider.': '選択したプロバイダーにはAPIキーが必要です。',
+    'Select a valid model/provider pair in settings.': '設定で有効なモデルとプロバイダーの組み合わせを選んでください。',
+    'Inline build completed': 'インライン生成が完了しました',
+    'Embed URL': 'URLを埋め込み',
+    'Paste an iframe or video embed URL.': 'iframeまたは動画埋め込みURLを貼り付けてください。',
+    'Embedded frame': '埋め込みフレーム',
+    'Embed HTML': 'HTMLを埋め込み',
+    'Enter custom HTML code to embed.': '埋め込むカスタムHTMLを入力してください。',
+    'enter a Snippet of a HTML...': 'HTMLスニペットを入力...',
+    'Insert LaTeX': 'LaTeXを挿入',
+    'Enter a LaTeX expression.': 'LaTeX式を入力してください。',
+    'Enter a LaTex expression...': 'LaTeX式を入力...',
+    'Enter a board name.': 'ボード名を入力してください。',
+    'Update the board name.': 'ボード名を更新してください。',
+    'Write Markdown here': 'ここにMarkdownを入力',
+    'Type here': 'ここに入力',
+    OK: 'OK',
+    Select: '選択',
+    Pen: 'ペン',
+    Dot: 'ドット',
+    Eraser: '消しゴム',
+    Line: '線',
+    Arrow: '矢印',
+    Rectangle: '長方形',
+    Circle: '円',
+    Embed: '埋め込み',
+    'Custom HTML': 'カスタムHTML',
+    Image: '画像',
+    Video: '動画',
+    'Other Files': 'その他のファイル',
+    'Normal Code': '通常コード',
+    'Monaco Editor': 'Monacoエディタ',
+    'Drawing Compass': 'コンパス',
+    Calculator: '電卓',
+    Graph: 'グラフ',
+    LaTeX: 'LaTeX',
+    Ruler: '定規',
+    Protractor: '分度器',
+    'Drag Select': 'ドラッグ選択',
+    'Pen tools': 'ペンツール',
+    'Embed tools': '埋め込みツール',
+    'Text tools': 'テキストツール',
+    'Math tools': '数学ツール',
+  },
+}
 
 const defaultProviderPresets: ProviderPreset[] = []
 const defaultModelPresets: ModelPreset[] = []
@@ -378,6 +815,18 @@ const normalizeContextSize = (value: string) => {
 }
 
 const sanitizeContextSizeInput = (value: string) => value.replace(/\D/g, '')
+const detectInitialLanguage = (): AppLanguage => {
+  if (typeof window === 'undefined') return 'en'
+  const stored = window.localStorage.getItem(UI_LANGUAGE_STORAGE_KEY)
+  if (stored && SUPPORTED_LANGUAGES.includes(stored as AppLanguage)) {
+    return stored as AppLanguage
+  }
+  return 'en'
+}
+const translateText = (language: AppLanguage, key: string) => {
+  if (language === 'en') return key
+  return TRANSLATIONS[language][key] ?? key
+}
 
 function CustomDropdown({
   value,
@@ -1298,9 +1747,10 @@ export function WhiteboardPage() {
     if (typeof window === 'undefined') return defaultModelPresets
     return parseModelPresets(window.localStorage.getItem(AI_MODEL_LIST_STORAGE_KEY))
   })
+  const [language, setLanguage] = useState<AppLanguage>(detectInitialLanguage)
   const [selectedChatModelId, setSelectedChatModelId] = useState(defaultModelPresets[0]?.id ?? '')
   const [pendingAsset, setPendingAsset] = useState<Asset | null>(null)
-  const [statusMessage, setStatusMessage] = useState('Loading workspace...')
+  const [statusMessage, setStatusMessage] = useState(() => translateText(detectInitialLanguage(), 'Loading workspace...'))
   const [modal, setModal] = useState<ModalState>(null)
   const [modalInput, setModalInput] = useState('')
   const [penColor, setPenColor] = useState(DEFAULT_PEN_COLOR)
@@ -1321,6 +1771,11 @@ export function WhiteboardPage() {
   const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null)
   const [thinkingDurationSeconds, setThinkingDurationSeconds] = useState(0)
   const chatMessageOrderRef = useRef(0)
+  const t = (key: string, params?: Record<string, string | number>) => {
+    const template = translateText(language, key)
+    if (!params) return template
+    return template.replace(/\{(\w+)\}/g, (_, token: string) => String(params[token] ?? `{${token}}`))
+  }
 
   const activeBoard = useMemo(
     () => boards.find((board) => board.id === activeBoardId) ?? null,
@@ -1335,6 +1790,11 @@ export function WhiteboardPage() {
     () => providerPresets.find((provider) => provider.id === selectedChatModel?.providerId) ?? null,
     [providerPresets, selectedChatModel],
   )
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, language)
+    document.documentElement.lang = language
+  }, [language])
   const orderedChatMessages = useMemo(
     () => [...chatMessages].sort((a, b) => a.order - b.order),
     [chatMessages],
@@ -1443,7 +1903,7 @@ export function WhiteboardPage() {
             setElements(saved.elements)
           }
         }
-        setStatusMessage('Saved')
+        setStatusMessage(t('Saved'))
       } catch (error) {
         setStatusMessage(error instanceof Error ? `Save failed: ${error.message}` : 'Save failed')
       }
@@ -1582,7 +2042,7 @@ export function WhiteboardPage() {
         })
         
         setAssets(await api.listAssets(board.id))
-        setStatusMessage('Workspace ready')
+        setStatusMessage(t('Workspace ready'))
       } catch (error) {
         setStatusMessage(error instanceof Error ? `Failed to load: ${error.message}` : 'Failed to load')
       }
@@ -2098,16 +2558,16 @@ export function WhiteboardPage() {
     if (tool === 'iframe') {
       void (async () => {
         const src = await openTextModal({
-          title: 'Embed URL',
-          message: 'Paste an iframe or video embed URL.',
+          title: t('Embed URL'),
+          message: t('Paste an iframe or video embed URL.'),
           placeholder: 'https://...',
           initialValue: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
-          confirmLabel: 'Insert',
+          confirmLabel: t('Insert'),
         })
         if (!src) return
         const element = createPlacedElement('iframe', point, getNextZIndex(elements), {
           src,
-          title: 'Embedded frame',
+          title: t('Embedded frame'),
         })
         commitElements([...elements, element]); setSelectedElementId(element.id)
       })()
@@ -2116,11 +2576,11 @@ export function WhiteboardPage() {
     if (tool === 'html') {
       void (async () => {
         const html = await openTextModal({
-          title: 'Embed HTML',
-          message: 'Enter custom HTML code to embed.',
-          placeholder: 'enter a Snippet of a HTML...',
+          title: t('Embed HTML'),
+          message: t('Enter custom HTML code to embed.'),
+          placeholder: t('enter a Snippet of a HTML...'),
           initialValue: '<div>Hello World</div>',
-          confirmLabel: 'Insert',
+          confirmLabel: t('Insert'),
           multiline: true,
         })
         if (!html) return
@@ -2153,11 +2613,11 @@ export function WhiteboardPage() {
     if (tool === 'latex') {
       void (async () => {
         const latex = await openTextModal({
-          title: 'Insert LaTeX',
-          message: 'Enter a LaTeX expression.',
-          placeholder: 'Enter a LaTex expression...',
+          title: t('Insert LaTeX'),
+          message: t('Enter a LaTeX expression.'),
+          placeholder: t('Enter a LaTex expression...'),
           initialValue: 'x^2',
-          confirmLabel: 'Insert',
+          confirmLabel: t('Insert'),
         })
         if (!latex) return
         const base = createPlacedElement('latex', point, getNextZIndex(elements))
@@ -2181,7 +2641,7 @@ export function WhiteboardPage() {
       }
       setPendingAsset(null)
       openAssetPicker(tool, point)
-      setStatusMessage(`Choose a ${tool} file to insert at the selected position.`)
+      setStatusMessage(t('Choose a {tool} file to insert at the selected position.', { tool }))
       return
     }
     const placed = createPlacedElement(tool, point, getNextZIndex(elements))
@@ -2515,11 +2975,11 @@ export function WhiteboardPage() {
 
   const createBoardAction = async () => {
     const name = await openTextModal({
-      title: 'New Board',
-      message: 'Enter a board name.',
+      title: t('New Board'),
+      message: t('Enter a board name.'),
       placeholder: `Board ${boards.length + 1}`,
       initialValue: `Board ${boards.length + 1}`,
-      confirmLabel: 'Create',
+      confirmLabel: t('Create'),
     })
     if (!name) return
     if (!name) return
@@ -2532,30 +2992,30 @@ export function WhiteboardPage() {
     setFuture([])
     setSelectedElementId(null)
     setAssets([])
-    setStatusMessage('Board created')
+    setStatusMessage(t('Board created'))
   }
 
   const renameBoardAction = async () => {
     if (!activeBoard) return
     const name = await openTextModal({
-      title: 'Rename',
-      message: 'Update the board name.',
+      title: t('Rename'),
+      message: t('Update the board name.'),
       placeholder: `Board ${activeBoard.name}`,
       initialValue: activeBoard.name,
-      confirmLabel: 'Rename',
+      confirmLabel: t('Rename'),
     })
     if (!name) return
     const board = await api.updateBoard(activeBoard.id, name)
     setBoards((prev) => prev.map((item) => (item.id === board.id ? board : item)))
-    setStatusMessage('Board renamed')
+    setStatusMessage(t('Board renamed'))
   }
 
   const deleteBoardAction = async () => {
     if (!activeBoard) return
     const confirmed = await openConfirmModal({
-      title: 'Delete Board',
-      message: `Delete "${activeBoard.name}" permanently?`,
-      confirmLabel: 'Delete',
+      title: t('Delete Board'),
+      message: t('Delete "{name}" permanently?', { name: activeBoard.name }),
+      confirmLabel: t('Delete'),
       danger: true,
     })
     if (!confirmed) return
@@ -2578,7 +3038,7 @@ export function WhiteboardPage() {
     setSelectedElementId(null)
     setHistory([])
     setFuture([])
-    setStatusMessage('Board deleted')
+    setStatusMessage(t('Board deleted'))
   }
 
   const switchBoard = async (boardId: string) => {
@@ -2591,21 +3051,21 @@ export function WhiteboardPage() {
     setHistory([])
     setFuture([])
     setAssets(await api.listAssets(board.id))
-    setStatusMessage(`Opened "${board.name}"`)
+    setStatusMessage(t('Opened "{name}"', { name: board.name }))
   }
 
   const clearAllElements = async () => {
     if (elements.length === 0) return
     const confirmed = await openConfirmModal({
-      title: 'Clear all elements?',
-      message: 'This will remove every element on the current board.',
-      confirmLabel: 'Clear All',
+      title: t('Clear all elements?'),
+      message: t('This will remove every element on the current board.'),
+      confirmLabel: t('Clear All'),
       danger: true,
     })
     if (!confirmed) return
     commitElements([])
     setSelectedElementId(null)
-    setStatusMessage('Board cleared')
+    setStatusMessage(t('Board cleared'))
   }
 
   const saveNow = async () => {
@@ -2614,12 +3074,12 @@ export function WhiteboardPage() {
     syncBoardVersion(saved.updatedAt)
     setBoards((prev) => prev.map((board) => (board.id === saved.id ? saved : board)))
     setElements(saved.elements)
-    setStatusMessage('Saved now')
+    setStatusMessage(t('Saved now'))
   }
 
   const openAssetPicker = (kind: Asset['kind'], insertPoint?: Point) => {
     if (!activeBoardId) {
-      setStatusMessage('Open a board first.')
+      setStatusMessage(t('Open a board first.'))
       return
     }
     const input = document.createElement('input')
@@ -2716,7 +3176,7 @@ export function WhiteboardPage() {
     const target = nextSettings ?? aiSettings
     const saved = await api.saveAISettings(target)
     setAiSettings(saved)
-    setStatusMessage('AI settings saved')
+    setStatusMessage(t('AI settings saved'))
     return saved
   }
 
@@ -2741,7 +3201,7 @@ export function WhiteboardPage() {
   const addModelPreset = () => {
     const providerId = providerPresets[0]?.id ?? ''
     if (!providerId) {
-      setStatusMessage('Add a provider first.')
+      setStatusMessage(t('Add a provider first.'))
       return
     }
     setModelPresets((prev) => [
@@ -2761,15 +3221,15 @@ export function WhiteboardPage() {
   const saveAIConfiguration = async () => {
     const target = buildSelectedAISettings()
     if (!target) {
-      setStatusMessage('Select a valid model/provider pair.')
+      setStatusMessage(t('Select a valid model/provider pair.'))
       return
     }
     if (!target.modelId.trim()) {
-      setStatusMessage('Model ID is required.')
+      setStatusMessage(t('Model ID is required.'))
       return
     }
     if (!target.apiKey.trim()) {
-      setStatusMessage('API key is required for the selected provider.')
+      setStatusMessage(t('API key is required for the selected provider.'))
       return
     }
     await saveAISettingsAction(target)
@@ -2910,11 +3370,11 @@ export function WhiteboardPage() {
     const prompt = inlineAgent.prompt.trim()
     const targetSettings = buildAISettingsForModel(inlineAgent.modelId)
     if (!targetSettings) {
-      setStatusMessage('Select a valid model/provider pair in settings.')
+      setStatusMessage(t('Select a valid model/provider pair in settings.'))
       return
     }
     if (!targetSettings.apiKey.trim()) {
-      setStatusMessage('API key is required for the selected provider.')
+      setStatusMessage(t('API key is required for the selected provider.'))
       return
     }
     const shouldSaveSettings =
@@ -2957,7 +3417,7 @@ export function WhiteboardPage() {
         )
       }
       await queueToolEvents(result.toolEvents, chatSessionRef.current, false)
-      setStatusMessage('Inline build completed')
+      setStatusMessage(t('Inline build completed'))
       closeInlineAgent()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Inline agent request failed.'
@@ -2980,11 +3440,11 @@ export function WhiteboardPage() {
 
     const targetSettings = buildSelectedAISettings()
     if (!targetSettings) {
-      setStatusMessage('Select a valid model/provider pair in settings.')
+      setStatusMessage(t('Select a valid model/provider pair in settings.'))
       return
     }
     if (!targetSettings.apiKey.trim()) {
-      setStatusMessage('API key is required for the selected provider.')
+      setStatusMessage(t('API key is required for the selected provider.'))
       return
     }
     const shouldSaveSettings =
@@ -3539,7 +3999,7 @@ export function WhiteboardPage() {
             onChange={(event) => {
               void switchBoard(event.target.value)
             }}
-            title="Boards"
+            title={t('Boards')}
           >
             {boards.map((board) => (
               <option key={board.id} value={board.id}>
@@ -3547,17 +4007,17 @@ export function WhiteboardPage() {
               </option>
             ))}
           </select>
-          <button onClick={() => void createBoardAction()} title="Create board">
-            <Plus size={16} /> New
+          <button onClick={() => void createBoardAction()} title={t('Create board')}>
+            <Plus size={16} /> {t('New')}
           </button>
           <button onClick={() => void renameBoardAction()} disabled={!activeBoard}>
-            <FolderOpen size={16} /> Rename
+            <FolderOpen size={16} /> {t('Rename')}
           </button>
           <button onClick={() => void deleteBoardAction()} disabled={!activeBoard}>
-            <Trash2 size={16} /> Delete
+            <Trash2 size={16} /> {t('Delete')}
           </button>
           <button onClick={() => void saveNow()}>
-            <Save size={16} /> Save
+            <Save size={16} /> {t('Save')}
           </button>
           <button
             onClick={() => {
@@ -3565,10 +4025,10 @@ export function WhiteboardPage() {
               setSettingsOpen(true)
             }}
           >
-            <Settings2 size={16} /> Settings
+            <Settings2 size={16} /> {t('Settings')}
           </button>
           <button onClick={() => setAiOpen((value) => !value)}>
-            <Sparkles size={16} /> Agent
+            <Sparkles size={16} /> {t('Agent')}
           </button>
         </div>
       </header>
@@ -3578,9 +4038,9 @@ export function WhiteboardPage() {
           <div className="canvas-toolbar">
             <div
               className="toolbar-tooltip"
-              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Undo')}
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, t('Undo'))}
               onMouseLeave={hideToolbarTooltip}
-              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Undo')}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, t('Undo'))}
               onBlur={hideToolbarTooltip}
             >
               <button onClick={undo} disabled={history.length === 0}>
@@ -3589,9 +4049,9 @@ export function WhiteboardPage() {
             </div>
             <div
               className="toolbar-tooltip"
-              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Redo')}
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, t('Redo'))}
               onMouseLeave={hideToolbarTooltip}
-              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Redo')}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, t('Redo'))}
               onBlur={hideToolbarTooltip}
             >
               <button onClick={redo} disabled={future.length === 0}>
@@ -3600,9 +4060,9 @@ export function WhiteboardPage() {
             </div>
             <div
               className="toolbar-tooltip"
-              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Clear All')}
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, t('Clear All'))}
               onMouseLeave={hideToolbarTooltip}
-              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Clear All')}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, t('Clear All'))}
               onBlur={hideToolbarTooltip}
             >
               <button onClick={() => void clearAllElements()} disabled={elements.length === 0}>
@@ -3611,9 +4071,9 @@ export function WhiteboardPage() {
             </div>
             <div
               className="toolbar-tooltip"
-              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Zoom In')}
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, t('Zoom In'))}
               onMouseLeave={hideToolbarTooltip}
-              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Zoom In')}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, t('Zoom In'))}
               onBlur={hideToolbarTooltip}
             >
               <button onClick={() => zoomBy(1.1)}>
@@ -3622,9 +4082,9 @@ export function WhiteboardPage() {
             </div>
             <div
               className="toolbar-tooltip"
-              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Center View')}
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, t('Center View'))}
               onMouseLeave={hideToolbarTooltip}
-              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Center View')}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, t('Center View'))}
               onBlur={hideToolbarTooltip}
             >
               <button onClick={resetView}>
@@ -3633,9 +4093,9 @@ export function WhiteboardPage() {
             </div>
             <div
               className="toolbar-tooltip"
-              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, 'Zoom Out')}
+              onMouseEnter={(event) => showToolbarTooltip(event.currentTarget, t('Zoom Out'))}
               onMouseLeave={hideToolbarTooltip}
-              onFocus={(event) => showToolbarTooltip(event.currentTarget, 'Zoom Out')}
+              onFocus={(event) => showToolbarTooltip(event.currentTarget, t('Zoom Out'))}
               onBlur={hideToolbarTooltip}
             >
               <button onClick={() => zoomBy(0.9)}>
@@ -3644,7 +4104,7 @@ export function WhiteboardPage() {
             </div>
 
             {tool === 'code' || tool === 'monaco' || selectedCodeElement || selectedMonacoElement ? (
-              <label className="toolbar-select" title="Editor language">
+              <label className="toolbar-select" title={t('Editor language')}>
                 <SquareCode size={13} />
                 <select
                   value={selectedMonacoElement?.language ?? selectedCodeElement?.language ?? codeLanguage}
@@ -3683,7 +4143,7 @@ export function WhiteboardPage() {
             ) : null}
             {tool === 'eraser-stroke' ? (
               <>
-                <label className="eraser-size" title="Eraser size">
+                <label className="eraser-size" title={t('Eraser size')}>
                   <Eraser size={13} />
                   <input
                     type="range"
@@ -3698,16 +4158,16 @@ export function WhiteboardPage() {
                 <button
                   className={eraserPenOnly ? 'tool-button active' : 'tool-button'}
                   onClick={() => setEraserPenOnly((value) => !value)}
-                  title="Erase pen strokes only"
-                  data-tooltip="Pen Only"
+                  title={t('Erase pen strokes only')}
+                  data-tooltip={t('Pen Only')}
                 >
-                  Pen Only
+                  {t('Pen Only')}
                 </button>
               </>
             ) : null}
             {tool === 'pen' || tool === 'dot' ? (
               <>
-                <label className="eraser-size" title="Pen thickness">
+                <label className="eraser-size" title={t('Pen thickness')}>
                   <PenTool size={13} />
                   <input
                     type="range"
@@ -3719,18 +4179,18 @@ export function WhiteboardPage() {
                   />
                   <span>{penStrokeWidth}px</span>
                 </label>
-                <label className="pen-color-control" title="Pen color">
+                <label className="pen-color-control" title={t('Pen color')}>
                   <input
                     type="color"
                     value={penColor}
                     onChange={(event) => setPenColor(event.target.value)}
-                    aria-label="Pen color"
+                    aria-label={t('Pen color')}
                   />
                 </label>
               </>
             ) : null}
             {(tool === 'text' || (isSelectionTool && selectedTextElement)) ? (
-              <label className="eraser-size" title="Text size">
+              <label className="eraser-size" title={t('Text size')}>
                 <Type size={13} />
                 <input
                   type="range"
@@ -3755,7 +4215,7 @@ export function WhiteboardPage() {
             {isSelectionTool && selectedCompassElement ? (
               <>
 
-                <label className="eraser-size" title="Compass stroke thickness">
+                <label className="eraser-size" title={t('Compass stroke thickness')}>
                   <DraftingCompass size={13} />
                   <input
                     type="range"
@@ -3778,7 +4238,7 @@ export function WhiteboardPage() {
                   />
                   <span>{clamp(selectedCompassElement.strokeWidth, 1, 8)}px</span>
                 </label>
-                <label className="pen-color-control" title="Compass stroke color">
+                <label className="pen-color-control" title={t('Compass stroke color')}>
                   <input
                     type="color"
                     value={selectedCompassElement.stroke}
@@ -3794,7 +4254,7 @@ export function WhiteboardPage() {
                         return next
                       })
                     }}
-                    aria-label="Compass stroke color"
+                    aria-label={t('Compass stroke color')}
                   />
                 </label>
                 <button
@@ -3831,9 +4291,9 @@ export function WhiteboardPage() {
                       return next
                     })
                   }}
-                  title="Flip compass"
+                  title={t('Flip compass')}
                 >
-                  Flip
+                  {t('Flip')}
                 </button>
               </>
             ) : null}
@@ -3895,7 +4355,7 @@ export function WhiteboardPage() {
             ) : null}
             {(tool === 'line' || tool === 'arrow' || tool === 'rectangle' || tool === 'ellipse') ? (
               <>
-                <label className="eraser-size" title="Shape thickness">
+                <label className="eraser-size" title={t('Shape thickness')}>
                   <Minus size={13} />
                   <input
                     type="range"
@@ -3911,17 +4371,17 @@ export function WhiteboardPage() {
                   <button
                     className={shapeFilled ? 'tool-button active' : 'tool-button'}
                     onClick={() => setShapeFilled((value) => !value)}
-                    title="Toggle shape fill"
+                    title={t('Toggle shape fill')}
                   >
-                    Fill
+                    {t('Fill')}
                   </button>
                 ) : null}
-                <label className="pen-color-control" title="Shape color">
+                <label className="pen-color-control" title={t('Shape color')}>
                   <input
                     type="color"
                     value={shapeColor}
                     onChange={(event) => setShapeColor(event.target.value)}
-                    aria-label="Shape color"
+                    aria-label={t('Shape color')}
                   />
                 </label>
               </>
@@ -3946,11 +4406,12 @@ export function WhiteboardPage() {
             onPointerUp={onPointerUp}
             onPointerLeave={onPointerLeave}
             onWheel={onWheel}
+            onContextMenu={(event) => event.preventDefault()}
           >
             <div
               className="tool-popup"
               role="toolbar"
-              aria-label="Whiteboard tools"
+              aria-label={t('Whiteboard tools')}
               onPointerDown={(event) => event.stopPropagation()}
             >
               {FIXED_TOOL_DEFS.map((item) => {
@@ -3959,9 +4420,9 @@ export function WhiteboardPage() {
                   <button
                     key={item.id}
                     className={tool === item.id ? 'active tool-button tool-select-fixed' : 'tool-button tool-select-fixed'}
-                    title={item.label}
-                    aria-label={item.label}
-                    data-tooltip={item.label}
+                    title={t(item.label)}
+                    aria-label={t(item.label)}
+                    data-tooltip={t(item.label)}
                     onClick={() => handleToolSelect(item.id)}
                   >
                     <Icon size={16} />
@@ -3982,9 +4443,9 @@ export function WhiteboardPage() {
                   >
                     <button
                       className={`tool-category-toggle ${isOpen ? 'active' : ''}`}
-                      title={category.label}
-                      aria-label={isOpen ? 'Go Back' : category.label}
-                      data-tooltip={isOpen ? 'Go Back' : category.label}
+                      title={t(category.label)}
+                      aria-label={isOpen ? t('Go Back') : t(category.label)}
+                      data-tooltip={isOpen ? t('Go Back') : t(category.label)}
                       onClick={() => toggleToolCategory(category.id)}
                     >
                       <ToggleIcon size={16} />
@@ -3997,9 +4458,9 @@ export function WhiteboardPage() {
                             <button
                               key={item.id}
                               className={tool === item.id ? 'active tool-button' : 'tool-button'}
-                              title={item.label}
-                              aria-label={item.label}
-                              data-tooltip={item.label}
+                              title={t(item.label)}
+                              aria-label={t(item.label)}
+                              data-tooltip={t(item.label)}
                               onClick={() => handleToolSelect(item.id)}
                             >
                               <Icon size={16} />
@@ -4044,8 +4505,8 @@ export function WhiteboardPage() {
                 onPointerDown={(event) => event.stopPropagation()}
               >
                 <div className="inline-agent-head">
-                  <span>Inline Build</span>
-                  <button type="button" className="inline-agent-close" onClick={closeInlineAgent} aria-label="Close inline AI">
+                  <span>{t('Inline Build')}</span>
+                  <button type="button" className="inline-agent-close" onClick={closeInlineAgent} aria-label={t('Close inline AI')}>
                     <CircleX size={14} />
                   </button>
                 </div>
@@ -4055,7 +4516,7 @@ export function WhiteboardPage() {
                   onChange={(event) =>
                     setInlineAgent((prev) => (prev ? { ...prev, prompt: event.target.value } : prev))
                   }
-                  placeholder="Describe what to insert here..."
+                  placeholder={t('Describe what to insert here...')}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                       event.preventDefault()
@@ -4078,11 +4539,11 @@ export function WhiteboardPage() {
                       value: model.id,
                       label: model.name,
                     }))}
-                    placeholder="Model"
+                    placeholder={t('Model')}
                   />
                   <button type="button" onClick={() => void runInlineAgent()} disabled={inlineAgent.loading}>
                     <Send size={15} />
-                    Insert
+                    {t('Insert')}
                   </button>
                 </div>
               </div>
@@ -4470,7 +4931,7 @@ export function WhiteboardPage() {
                             rel="noreferrer"
                             onClick={(event) => event.stopPropagation()}
                           >
-                            Open
+                            {t('Open')}
                           </a>
                         </div>
                       </div>
@@ -4636,7 +5097,7 @@ export function WhiteboardPage() {
                                           className="graph-inline-remove"
                                           onClick={() => removeGraphExpressionDraftAt(index)}
                                           disabled={graphExpressionDrafts.length <= 1}
-                                          title="Remove formula"
+                                          title={t('Remove formula')}
                                         >
                                           <CircleX size={12} />
                                         </button>
@@ -4644,7 +5105,7 @@ export function WhiteboardPage() {
                                     ))}
                                   </div>
                                   <button type="button" className="graph-inline-add" onClick={addGraphExpressionDraft}>
-                                    <Plus size={12} /> Add formula
+                                    <Plus size={12} /> {t('Add formula')}
                                   </button>
                                 </div>
                               ) : null}
@@ -4678,7 +5139,7 @@ export function WhiteboardPage() {
                             setEditingTextId(element.id)
                           }}
                         >
-                          {element.text || 'Text'}
+                          {element.text || t('Text')}
                         </div>
                       )
                     ) : null}
@@ -4700,7 +5161,7 @@ export function WhiteboardPage() {
                             setEditingTextId(element.id)
                           }}
                           dangerouslySetInnerHTML={{
-                            __html: renderMarkdownToHtml(element.text || '# Markdown'),
+                            __html: renderMarkdownToHtml(element.text || `# ${t('Markdown')}`),
                           }}
                         />
                       )
@@ -4859,7 +5320,7 @@ export function WhiteboardPage() {
                     ref={editingTextRef}
                     value={editingTextElement.text}
                     autoFocus
-                    placeholder={editingTextElement.type === 'markdown' ? 'Write Markdown here' : 'Type here'}
+                    placeholder={editingTextElement.type === 'markdown' ? t('Write Markdown here') : t('Type here')}
                     onChange={(event) => {
                       const value = event.target.value
                       setElements((prev) =>
@@ -4891,7 +5352,7 @@ export function WhiteboardPage() {
         {aiOpen ? (
           <aside className="ai-panel open">
             <div className="ai-head">
-              <h2>Agent</h2>
+              <h2>{t('Agent')}</h2>
               <button
                 type="button"
                 className="new-chat-btn"
@@ -4905,12 +5366,12 @@ export function WhiteboardPage() {
                 }}
               >
                 <Plus size={14} />
-                New chat
+                {t('New chat')}
               </button>
             </div>
 
             <div className="chat-window" ref={chatWindowRef}>
-              {orderedChatMessages.length === 0 ? <div className="chat-empty">Start by asking agent to build something...</div> : null}
+              {orderedChatMessages.length === 0 ? <div className="chat-empty">{t('Start by asking agent to build something...')}</div> : null}
               {orderedChatMessages.map((message) => (
                 <div key={message.id} className={`chat-message ${message.role}`}>
                   {message.role === 'user' ? (
@@ -4926,13 +5387,13 @@ export function WhiteboardPage() {
                         message.status === 'thinking' ? (
                           <div className={`chat-thought-pill thinking ${expandedThoughts[message.id] ? 'expanded' : ''}`}>
                             <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-                              Thinking for {thinkingDurationSeconds}s
+                              {t('Thinking for {seconds}s', { seconds: thinkingDurationSeconds })}
                               {selectedChatModel?.reasoning && message.detail && (
                                 <button
                                   className="chat-toggle-thought-btn"
                                   onClick={() => toggleThought(message.id)}
                                 >
-                                  {expandedThoughts[message.id] ? 'Close' : 'Open'}
+                                  {expandedThoughts[message.id] ? t('Close') : t('Open')}
                                 </button>
                               )}
                             </span>
@@ -4952,7 +5413,7 @@ export function WhiteboardPage() {
                                   className="chat-toggle-thought-btn"
                                   onClick={() => toggleThought(message.id)}
                                 >
-                                  {expandedThoughts[message.id] ? 'Close' : 'Open'}
+                                  {expandedThoughts[message.id] ? t('Close') : t('Open')}
                                 </button>
                               )}
                             </span>
@@ -4973,10 +5434,10 @@ export function WhiteboardPage() {
                         <div className="chat-message-actions">
                           <button
                             className="msg-action-btn"
-                            title="Copy text"
+                            title={t('Copy text')}
                             onClick={() => {
                               void navigator.clipboard.writeText(message.content)
-                              setStatusMessage('Copied to clipboard')
+                              setStatusMessage(t('Copied to clipboard'))
                             }}
                           >
                             <Copy size={13} />
@@ -4984,7 +5445,7 @@ export function WhiteboardPage() {
                           {message.id === (orderedChatMessages.filter(m => m.role === 'assistant' || m.role === 'error').slice(-1)[0]?.id) && (
                             <button
                               className="msg-action-btn"
-                              title="Retry"
+                              title={t('Retry')}
                               onClick={() => {
                                 // Find the last user message before this one
                                 const history = orderedChatMessages
@@ -5016,7 +5477,7 @@ export function WhiteboardPage() {
               <textarea
                 value={agentPrompt}
                 onChange={(event) => setAgentPrompt(event.target.value)}
-                placeholder={agentMode === 'chat' ? 'Ask about your board...' : 'Build, Edit and Delete...'}
+                placeholder={agentMode === 'chat' ? t('Ask about your board...') : t('Build, Edit and Delete...')}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                     event.preventDefault()
@@ -5032,8 +5493,8 @@ export function WhiteboardPage() {
                     value={agentMode}
                     onChange={(value) => setAgentMode(value as AgentMode)}
                     options={[
-                      { value: 'chat', label: 'Ask' },
-                      { value: 'build', label: 'Build' },
+                      { value: 'chat', label: t('Ask') },
+                      { value: 'build', label: t('Build') },
                     ]}
                   />
                   <CustomDropdown
@@ -5044,7 +5505,7 @@ export function WhiteboardPage() {
                       value: model.id,
                       label: model.name,
                     }))}
-                    placeholder="Model"
+                    placeholder={t('Model')}
                   />
                 </div>
                 <button className="compose-send-btn" onClick={() => void runAgent()} disabled={agentLoading}>
@@ -5061,32 +5522,42 @@ export function WhiteboardPage() {
           <div className="settings-shell">
             <aside className="settings-nav">
               <div className="settings-nav-head">
-                <h2>Settings</h2>
-                <p>Global workspace preferences</p>
+                <h2>{t('Settings')}</h2>
+                <p>{t('Global workspace preferences')}</p>
               </div>
+              <label className="settings-field">
+                <span>{t('Language')}</span>
+                <select value={language} onChange={(event) => setLanguage(event.target.value as AppLanguage)}>
+                  {LANGUAGE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 className="settings-nav-item active"
                 onClick={() => setSettingsSection('ai')}
               >
-                AI Features
+                {t('AI Features')}
               </button>
             </aside>
             <section className="settings-content">
               <div className="settings-content-head">
-                <h1 className="settings-title">AI Settings</h1>
+                <h1 className="settings-title">{t('AI Settings')}</h1>
                 <button className="settings-close-btn" onClick={() => setSettingsOpen(false)}>
-                  <ChevronLeft size={14} /> Back to board
+                  <ChevronLeft size={14} /> {t('Back to board')}
                 </button>
               </div>
 
               <div className="settings-section-stack">
-                <p>Manage provider and model lists.</p>
+                <p>{t('Manage provider and model lists.')}</p>
 
                 <section className="ai-config-section">
                   <div className="ai-config-head">
-                    <h4>Provider List</h4>
+                    <h4>{t('Provider List')}</h4>
                     <button className="ai-config-add-btn" onClick={addProviderPreset}>
-                      <Plus size={14} /> Add
+                      <Plus size={14} /> {t('Add')}
                     </button>
                   </div>
                   <div className="ai-config-list">
@@ -5099,7 +5570,7 @@ export function WhiteboardPage() {
                               prev.map((item) => (item.id === provider.id ? { ...item, name: event.target.value } : item)),
                             )
                           }
-                          placeholder="Provider name"
+                          placeholder={t('Provider name')}
                         />
                         <CustomDropdown
                           className="ai-config-dropdown"
@@ -5116,7 +5587,7 @@ export function WhiteboardPage() {
                           options={[
                             { value: 'openai', label: 'OpenAI' },
                             { value: 'gemini', label: 'Gemini' },
-                            { value: 'compatible', label: 'Compatible' },
+                            { value: 'compatible', label: t('Compatible') },
                           ]}
                         />
                         <input
@@ -5129,8 +5600,8 @@ export function WhiteboardPage() {
                           }
                           placeholder={
                             provider.providerType === 'compatible'
-                              ? 'Base URL (compatible)'
-                              : 'Base URL available for Compatible only'
+                              ? t('Base URL (compatible)')
+                              : t('Base URL available for Compatible only')
                           }
                         />
                         <input
@@ -5141,7 +5612,7 @@ export function WhiteboardPage() {
                               prev.map((item) => (item.id === provider.id ? { ...item, apiKey: event.target.value } : item)),
                             )
                           }
-                          placeholder="API key"
+                          placeholder={t('API key')}
                         />
                         <button className="ai-config-remove-btn" onClick={() => removeProviderPreset(provider.id)}>
                           <CircleX size={14} />
@@ -5153,9 +5624,9 @@ export function WhiteboardPage() {
 
                 <section className="ai-config-section">
                   <div className="ai-config-head">
-                    <h4>Model List</h4>
+                    <h4>{t('Model List')}</h4>
                     <button className="ai-config-add-btn" onClick={addModelPreset}>
-                      <Plus size={14} /> Add
+                      <Plus size={14} /> {t('Add')}
                     </button>
                   </div>
                   <div className="ai-config-list">
@@ -5168,7 +5639,7 @@ export function WhiteboardPage() {
                               prev.map((item) => (item.id === model.id ? { ...item, name: event.target.value } : item)),
                             )
                           }
-                          placeholder="Model name"
+                          placeholder={t('Model name')}
                         />
                         <input
                           value={model.modelId}
@@ -5177,7 +5648,7 @@ export function WhiteboardPage() {
                               prev.map((item) => (item.id === model.id ? { ...item, modelId: event.target.value } : item)),
                             )
                           }
-                          placeholder="Model ID"
+                          placeholder={t('Model ID')}
                         />
                         <CustomDropdown
                           className="ai-config-dropdown"
@@ -5191,7 +5662,7 @@ export function WhiteboardPage() {
                             value: provider.id,
                             label: provider.name,
                           }))}
-                          placeholder="Provider"
+                          placeholder={t('Provider')}
                         />
                         <input
                           type="text"
@@ -5206,9 +5677,9 @@ export function WhiteboardPage() {
                               ),
                             )
                           }
-                          placeholder="Context size"
+                          placeholder={t('Context size')}
                         />
-                        <label className="ai-model-stream-toggle" title="Enable real-time streaming">
+                        <label className="ai-model-stream-toggle" title={t('Enable real-time streaming')}>
                           <input
                             type="checkbox"
                             checked={model.stream}
@@ -5218,9 +5689,9 @@ export function WhiteboardPage() {
                               )
                             }
                           />
-                          <span>Stream</span>
+                          <span>{t('Stream')}</span>
                         </label>
-                        <label className="ai-model-stream-toggle" title="Show reasoning/thoughts if supported">
+                        <label className="ai-model-stream-toggle" title={t('Show reasoning/thoughts if supported')}>
                           <input
                             type="checkbox"
                             checked={model.reasoning}
@@ -5230,7 +5701,7 @@ export function WhiteboardPage() {
                               )
                             }
                           />
-                          <span>Reasoning</span>
+                          <span>{t('Reasoning')}</span>
                         </label>
                         <button
                           className="ai-config-remove-btn"
@@ -5245,10 +5716,10 @@ export function WhiteboardPage() {
 
                 <div className="settings-actions">
                   <button className="settings-secondary-btn" onClick={() => setSettingsOpen(false)}>
-                    Cancel
+                    {t('Cancel')}
                   </button>
                   <button className="settings-primary-btn" onClick={() => void saveAIConfiguration()}>
-                    <Check size={14} /> Save AI settings
+                    <Check size={14} /> {t('Save AI settings')}
                   </button>
                 </div>
               </div>
@@ -5293,13 +5764,13 @@ export function WhiteboardPage() {
             ) : null}
             <div className="app-modal-actions">
               <button onClick={modal.kind === 'confirm' ? cancelConfirmModal : cancelTextModal}>
-                Cancel
+                {t('Cancel')}
               </button>
               <button
                 className={modal.kind === 'confirm' && modal.danger ? 'danger' : ''}
                 onClick={modal.kind === 'confirm' ? confirmConfirmModal : confirmTextModal}
               >
-                {modal.confirmLabel ?? 'OK'}
+                {modal.confirmLabel ? t(modal.confirmLabel) : t('OK')}
               </button>
             </div>
           </div>

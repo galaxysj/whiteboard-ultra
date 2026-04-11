@@ -25,6 +25,31 @@ body,
   margin: 0;
   width: 100%;
   min-height: 100%;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+html,
+body,
+#root {
+  overscroll-behavior: none;
+}
+
+/* 터치 기기: 뷰포트/바디 스크롤·바운스·풀투리프레시 완화, 앱 내부 스크롤 영역은 각 요소 touch-action으로 유지 */
+@media (hover: none) and (pointer: coarse) {
+  html,
+  body,
+  #root {
+    height: 100%;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+
+  body {
+    touch-action: none;
+  }
 }
 
 body {
@@ -338,6 +363,8 @@ h3 {
   overflow: hidden;
   position: relative;
   z-index: 30;
+  touch-action: none;
+  overscroll-behavior: none;
   user-select: none;
   -webkit-user-select: none;
   background:
@@ -753,6 +780,7 @@ h3 {
   font: 500 13px/1.5 'Consolas', 'SFMono-Regular', monospace;
   white-space: pre-wrap;
   overflow: auto;
+  touch-action: pan-x pan-y;
 }
 
 .code-block-input {
@@ -869,6 +897,7 @@ h3 {
 
 .markdown-box-content.selected {
   overflow: auto;
+  touch-action: pan-x pan-y;
 }
 
 .markdown-box-content p {
@@ -1001,6 +1030,7 @@ h3 {
   transition: width 200ms ease, opacity 140ms ease;
   min-height: 0;
   overflow: auto;
+  touch-action: pan-y;
 }
 
 .board-controls select {
@@ -1077,6 +1107,7 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  touch-action: pan-y;
 }
 
 .chat-empty {
@@ -1461,6 +1492,7 @@ h3 {
   padding: 4px;
   max-height: 230px;
   overflow: auto;
+  touch-action: pan-y;
 }
 
 .custom-dropdown-item {
@@ -1556,6 +1588,7 @@ h3 {
   align-content: start;
   gap: 8px;
   background: linear-gradient(180deg, rgba(248, 252, 255, 0.95), rgba(255, 255, 255, 0.95));
+  touch-action: pan-x pan-y;
 }
 
 .settings-nav-head {
@@ -1635,6 +1668,7 @@ h3 {
   display: grid;
   align-content: start;
   gap: 12px;
+  touch-action: pan-y;
 }
 
 .settings-section-stack p {
