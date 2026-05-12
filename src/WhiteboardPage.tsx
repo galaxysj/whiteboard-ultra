@@ -524,6 +524,7 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Flip right': '오른쪽으로 뒤집기',
     'Move Select': '밀기 선택',
     'Move grid count': '이동 모눈 수',
+    'Grid layers': '모눈 레이어',
     'Move left': '왼쪽으로 밀기',
     'Move right': '오른쪽으로 밀기',
     'Move up': '위로 밀기',
@@ -681,6 +682,7 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Flip right': '向右翻转',
     'Move Select': '推动选择',
     'Move grid count': '移动网格数',
+    'Grid layers': '网格图层',
     'Move left': '向左推动',
     'Move right': '向右推动',
     'Move up': '向上推动',
@@ -838,6 +840,7 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Flip right': '右に反転',
     'Move Select': '移動選択',
     'Move grid count': '移動グリッド数',
+    'Grid layers': 'グリッドレイヤー',
     'Move left': '左へ移動',
     'Move right': '右へ移動',
     'Move up': '上へ移動',
@@ -1010,6 +1013,7 @@ const boardCenter = () => ({
   zoom: 1,
 })
 const GRID_STEP = 36
+const GRID_STEP_OPTIONS = [18, 36, 72] as const
 const DEFAULT_ERASER_RADIUS = 12
 const DEFAULT_PEN_STROKE_WIDTH = 2
 const DEFAULT_PEN_COLOR = '#183153'
@@ -1812,6 +1816,7 @@ export function WhiteboardPage() {
   const setSelectedElementId = (id: string | null) => setSelectedElementIds(id ? [id] : [])
   const [tool, setTool] = useState<CanvasToolId>('select')
   const [pushSelectGridCount, setPushSelectGridCount] = useState(1)
+  const [selectedGridSteps, setSelectedGridSteps] = useState<number[]>([GRID_STEP])
   const [rotateSelectClockwise, setRotateSelectClockwise] = useState(true)
   const [viewport, setViewport] = useState<Viewport>(boardCenter)
   const [draft, setDraft] = useState<DraftState>(null)
@@ -4157,14 +4162,35 @@ export function WhiteboardPage() {
   }, [viewport])
 
   const gridStyle = useMemo(() => {
-    const step = GRID_STEP * viewport.zoom
-    const offsetX = (-viewport.x * viewport.zoom) % step
-    const offsetY = (-viewport.y * viewport.zoom) % step
-    return {
-      backgroundPosition: `${offsetX}px ${offsetY}px, ${offsetX}px ${offsetY}px`,
-      backgroundSize: `${step}px ${step}px, ${step}px ${step}px`,
+    const activeSteps = selectedGridSteps
+      .filter((step) => Number.isFinite(step) && step > 0)
+      .sort((a, b) => a - b)
+    const resolvedSteps = activeSteps.length > 0 ? activeSteps : [GRID_STEP]
+    const layers: string[] = []
+    const positions: string[] = []
+    const sizes: string[] = []
+
+    for (const baseStep of resolvedSteps) {
+      const step = baseStep * viewport.zoom
+      const offsetX = (-viewport.x * viewport.zoom) % step
+      const offsetY = (-viewport.y * viewport.zoom) % step
+      layers.push('linear-gradient(rgba(47, 116, 150, 0.09) 1px, transparent 1px)')
+      layers.push('linear-gradient(90deg, rgba(47, 116, 150, 0.09) 1px, transparent 1px)')
+      positions.push(`${offsetX}px ${offsetY}px`)
+      positions.push(`${offsetX}px ${offsetY}px`)
+      sizes.push(`${step}px ${step}px`)
+      sizes.push(`${step}px ${step}px`)
     }
-  }, [viewport.x, viewport.y, viewport.zoom])
+
+    layers.push('#ffffff')
+    positions.push('0 0')
+    sizes.push('auto')
+    return {
+      backgroundImage: layers.join(', '),
+      backgroundPosition: positions.join(', '),
+      backgroundSize: sizes.join(', '),
+    }
+  }, [selectedGridSteps, viewport.x, viewport.y, viewport.zoom])
 
   const canvasCursor = useMemo(() => {
     if (drag?.kind === 'move' || drag?.kind === 'canvas') {
@@ -4466,6 +4492,26 @@ export function WhiteboardPage() {
                 />
               </label>
             ) : null}
+            <label className="toolbar-select" title={t('Grid layers')}>
+              <Grid3x3 size={13} />
+              <select
+                multiple
+                value={selectedGridSteps.map(String)}
+                onChange={(event) => {
+                  const values = Array.from(event.target.selectedOptions)
+                    .map((option) => Number(option.value))
+                    .filter((value) => Number.isFinite(value) && value > 0)
+                  setSelectedGridSteps(values.length > 0 ? values : [GRID_STEP])
+                }}
+                aria-label={t('Grid layers')}
+              >
+                {GRID_STEP_OPTIONS.map((step) => (
+                  <option key={step} value={step}>
+                    {step}px
+                  </option>
+                ))}
+              </select>
+            </label>
 
             {tool === 'code' || tool === 'monaco' || selectedCodeElement || selectedMonacoElement ? (
               <label className="toolbar-select" title={t('Editor language')}>
