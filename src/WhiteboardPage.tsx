@@ -51,6 +51,8 @@ import {
   Redo,
   ZoomIn,
   ZoomOut,
+  FlipHorizontal,
+  FlipVertical,
 } from 'lucide-react'
 import { api } from './api.ts'
 import {
@@ -68,6 +70,7 @@ import {
   type GraphElement,
   type MonacoElement,
   type Point,
+  type PolygonElement,
   type ShapeElement,
   type ToolCategory,
   type ToolId,
@@ -75,6 +78,7 @@ import {
 import {
   createPenElement,
   createPlacedElement,
+  createPolygonElement,
   createShapeElement,
   normalizeRect,
   renderLatexToHtml,
@@ -139,10 +143,11 @@ type DropdownOption = {
   label: string
 }
 type AppLanguage = 'en' | 'ko' | 'zh' | 'ja'
-type CanvasToolId = ToolId | 'drag-select' | 'eraser-stroke' | 'dot' | 'calculator'
+type CanvasToolId = ToolId | 'drag-select' | 'move-select' | 'eraser-stroke' | 'dot' | 'calculator'
 type DraftState =
   | { type: 'shape'; tool: 'line' | 'arrow' | 'rectangle' | 'ellipse'; start: Point; end: Point }
   | { type: 'pen'; rawPoints: Point[]; points: Point[] }
+  | { type: 'polygon'; points: Point[]; preview: Point }
   | { type: 'eraser'; points: Point[] }
   | null
 type DragState =
@@ -234,6 +239,7 @@ const TOOL_DEFS: Array<{ id: CanvasToolId; label: string; category: ToolCategory
   { id: 'pen', label: 'Pen', category: 'general', icon: PenTool },
   { id: 'dot', label: 'Dot', category: 'general', icon: Dot },
   { id: 'eraser-stroke', label: 'Eraser', category: 'general', icon: Eraser },
+  { id: 'polygon', label: 'Polygon', category: 'general', icon: SquarePlus },
   { id: 'line', label: 'Line', category: 'general', icon: Minus },
   { id: 'arrow', label: 'Arrow', category: 'general', icon: ArrowRight },
   { id: 'rectangle', label: 'Rectangle', category: 'general', icon: RectangleHorizontal },
@@ -253,6 +259,7 @@ const TOOL_DEFS: Array<{ id: CanvasToolId; label: string; category: ToolCategory
   { id: 'latex', label: 'LaTeX', category: 'math', icon: Scan },
   { id: 'ruler', label: 'Ruler', category: 'math', icon: Ruler },
   { id: 'protractor', label: 'Protractor', category: 'math', icon: Gauge },
+  { id: 'move-select', label: 'Move Select', category: 'math', icon: SquareMousePointer },
 ]
 const CATEGORY_TOOL_DEFS = TOOL_DEFS.filter((item) => item.id !== 'select')
 const FIXED_TOOL_DEFS: Array<{ id: Extract<CanvasToolId, 'select' | 'drag-select'>; label: string; icon: typeof MousePointer2 }> = [
@@ -409,6 +416,7 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     Arrow: '화살표',
     Rectangle: '사각형',
     Circle: '원',
+    Polygon: '다각형',
     Embed: '임베드',
     'Custom HTML': '사용자 HTML',
     Image: '이미지',
@@ -427,6 +435,11 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Embed tools': '임베드 도구',
     'Text tools': '텍스트 도구',
     'Math tools': '수학 도구',
+    'Move Select': '이동 선택',
+    'Flip left': '왼쪽으로 뒤집기',
+    'Flip right': '오른쪽으로 뒤집기',
+    'Flip up': '위로 뒤집기',
+    'Flip down': '아래로 뒤집기',
   },
   zh: {
     'Loading workspace...': '正在加载工作区...',
@@ -569,6 +582,11 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Embed tools': '嵌入工具',
     'Text tools': '文本工具',
     'Math tools': '数学工具',
+    'Move Select': '移动选择',
+    'Flip left': '向左翻转',
+    'Flip right': '向右翻转',
+    'Flip up': '向上翻转',
+    'Flip down': '向下翻转',
   },
   ja: {
     'Loading workspace...': 'ワークスペースを読み込み中...',
@@ -711,6 +729,11 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Embed tools': '埋め込みツール',
     'Text tools': 'テキストツール',
     'Math tools': '数学ツール',
+    'Move Select': '移動選択',
+    'Flip left': '左に反転',
+    'Flip right': '右に反転',
+    'Flip up': '上に反転',
+    'Flip down': '下に反転',
   },
 }
 
@@ -905,6 +928,7 @@ const ASSET_MAX_INITIAL_HEIGHT = 220
 const PEN_MIN_POINT_DISTANCE = 0.9
 const PEN_LOW_SPEED_SMOOTH = 0.12
 const PEN_HIGH_SPEED_SMOOTH = 0.42
+const POLYGON_CLOSE_DISTANCE_PX = 18
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
 const normalizeAngle = (angle: number) => ((angle % 360) + 360) % 360
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
@@ -1649,6 +1673,35 @@ const getElementSelectionBounds = (element: BoardElement) => {
     height: Math.max(...ys) - Math.min(...ys),
   }
 }
+const getSelectionBounds = (elements: BoardElement[]) => {
+  if (elements.length === 0) return null
+  const bounds = elements.map(getElementSelectionBounds)
+  const xs = bounds.flatMap((item) => [item.x, item.x + item.width])
+  const ys = bounds.flatMap((item) => [item.y, item.y + item.height])
+  return {
+    x: Math.min(...xs),
+    y: Math.min(...ys),
+    width: Math.max(...xs) - Math.min(...xs),
+    height: Math.max(...ys) - Math.min(...ys),
+  }
+}
+const flipElementWithinBounds = (
+  element: BoardElement,
+  bounds: { x: number; y: number; width: number; height: number },
+  axis: 'horizontal' | 'vertical',
+) => {
+  const itemBounds = getElementSelectionBounds(element)
+  const next = cloneElementDeep(element)
+  if (axis === 'horizontal') {
+    next.x = bounds.x + bounds.width - (itemBounds.x - bounds.x) - itemBounds.width
+    next.flipX = !next.flipX
+  } else {
+    next.y = bounds.y + bounds.height - (itemBounds.y - bounds.y) - itemBounds.height
+    next.flipY = !next.flipY
+  }
+  next.updatedAt = new Date().toISOString()
+  return next
+}
 const rectContains = (
   container: { x: number; y: number; width: number; height: number },
   item: { x: number; y: number; width: number; height: number },
@@ -1729,7 +1782,7 @@ export function WhiteboardPage() {
   const [history, setHistory] = useState<BoardElement[][]>([])
   const [future, setFuture] = useState<BoardElement[][]>([])
   const [openToolCategory, setOpenToolCategory] = useState<ToolCategory | null>(null)
-  const [aiOpen, setAiOpen] = useState(true)
+  const [aiOpen, setAiOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [, setSettingsSection] = useState<SettingsSection>('ai')
   const [agentMode, setAgentMode] = useState<AgentMode>('chat')
@@ -1818,6 +1871,22 @@ export function WhiteboardPage() {
       setHistory((prev) => [...prev.slice(-60), previousElements])
       setFuture([])
     }
+  }
+
+  const commitPolygonDraft = (points: Point[]) => {
+    if (points.length < 3) {
+      setDraft(null)
+      setStatusMessage('Polygon needs at least 3 points')
+      return
+    }
+    const element = createPolygonElement(points, getNextZIndex(elementsRef.current), {
+      stroke: shapeColor,
+      strokeWidth: shapeStrokeWidth,
+      fill: shapeFilled ? getShapeFillColor(shapeColor) : 'transparent',
+    })
+    commitElements([...elementsRef.current, element])
+    setSelectedElementId(null)
+    setDraft(null)
   }
   const insertAssetAtPoint = async (point: Point, asset: Asset, nextToolOnComplete: CanvasToolId = 'select') => {
     const baseElement = createPlacedElement(asset.kind, point, getNextZIndex(elementsRef.current), { asset })
@@ -2191,6 +2260,13 @@ export function WhiteboardPage() {
         return
       }
 
+      if (event.key === 'Escape' && draft?.type === 'polygon') {
+        event.preventDefault()
+        setDraft(null)
+        setStatusMessage('Polygon cancelled')
+        return
+      }
+
       if (isTyping) return
 
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && key === 'z') {
@@ -2309,7 +2385,7 @@ export function WhiteboardPage() {
 
   const topElementAt = (point: Point) =>
     sortByZ(elements).find((element) => isSelectableElement(element) && elementBoundsHit(element, point))
-  const isSelectionTool = tool === 'select' || tool === 'drag-select'
+  const isSelectionTool = tool === 'select' || tool === 'drag-select' || tool === 'move-select'
   const eraseAtPoints = (source: BoardElement[], points: Point[]) => {
     if (points.length === 0) return source
     const next = source.filter(
@@ -2368,7 +2444,7 @@ export function WhiteboardPage() {
       if (!hit) {
         setSelectedElementIds([])
         const nextDrag: DragState =
-          tool === 'drag-select'
+          tool === 'drag-select' || tool === 'move-select'
             ? { kind: 'selection-box', start: point, end: point }
             : { kind: 'canvas', start: { x: event.clientX, y: event.clientY }, origin: { x: viewport.x, y: viewport.y } }
         dragRef.current = nextDrag
@@ -2490,6 +2566,29 @@ export function WhiteboardPage() {
       return
     }
     if (tool === 'pen') return setDraft({ type: 'pen', rawPoints: [point], points: [point] })
+    if (tool === 'polygon') {
+      // Click to add vertices. If you click close enough to the starting point, commit.
+      if (draft?.type === 'polygon') {
+        const first = draft.points[0]
+        const thresholdWorld = POLYGON_CLOSE_DISTANCE_PX / Math.max(0.1, viewport.zoom)
+        if (first && draft.points.length >= 3 && distance(point, first) <= thresholdWorld) {
+          commitPolygonDraft(draft.points)
+          return
+        }
+      }
+
+      setDraft((prev) => {
+        if (prev?.type !== 'polygon') {
+          const next = { type: 'polygon', points: [point], preview: point } as const
+          setStatusMessage(`Polygon: 1 point`)
+          return next
+        }
+        const nextPoints = [...prev.points, point]
+        setStatusMessage(`Polygon: ${nextPoints.length} points`)
+        return { ...prev, points: nextPoints, preview: point }
+      })
+      return
+    }
     if (tool === 'eraser-stroke') {
       eraserSessionRef.current = elements
       eraserPointsRef.current = [point]
@@ -2672,6 +2771,9 @@ export function WhiteboardPage() {
       return
     }
     if (draft?.type === 'shape') return setDraft({ ...draft, end: point })
+    if (draft?.type === 'polygon') {
+      return setDraft((prev) => (prev?.type === 'polygon' ? { ...prev, preview: point } : prev))
+    }
     if (draft?.type === 'pen') {
       return setDraft((prev) => {
         if (prev?.type !== 'pen') return prev
@@ -2871,6 +2973,8 @@ export function WhiteboardPage() {
       })
       shape.strokeWidth = shapeStrokeWidth
       commitElements([...elements, shape]); setSelectedElementId(null)
+    } else if (draft?.type === 'polygon') {
+      // Do not commit on pointer up; polygon commits on double-click.
     } else if (draft?.type === 'pen' && draft.points.length > 1) {
       const pen = createPenElement(draft.points, getNextZIndex(elements), {
         stroke: penColor,
@@ -2927,7 +3031,18 @@ export function WhiteboardPage() {
       commitElements(elementsRef.current)
     }
     dragRef.current = null
-    setDraft(null); setDrag(null)
+    // Polygon drafting is click-to-add and commits on double-click, so it must persist across pointer ups.
+    if (draft?.type !== 'polygon') {
+      setDraft(null)
+    }
+    setDrag(null)
+  }
+
+  const onDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    // Polygon closes by clicking near the starting point.
+    if (tool === 'polygon') {
+      event.preventDefault()
+    }
   }
 
   const onPointerLeave = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -3110,6 +3225,48 @@ export function WhiteboardPage() {
       return
     }
     setTool(nextTool)
+  }
+  const handleMoveSelectFlip = (axis: 'horizontal' | 'vertical') => {
+    if (!selectedElementsBounds || selectedElements.length === 0) return
+    setElements((prev) => {
+      const selectedIds = new Set(selectedElements.map((element) => element.id))
+      const flipped = prev.map((element) => {
+        if (!selectedIds.has(element.id)) return element
+        return flipElementWithinBounds(element, selectedElementsBounds, axis)
+      })
+      elementsRef.current = flipped
+      return flipped
+    })
+  }
+  const handleMoveSelectDuplicateFlip = (axis: 'horizontal' | 'vertical', direction: -1 | 1) => {
+    if (!selectedElementsBounds || selectedElements.length === 0) return
+    setElements((prev) => {
+      const selectedIds = new Set(selectedElements.map((element) => element.id))
+      const originals = prev.filter((element) => selectedIds.has(element.id))
+      if (originals.length === 0) return prev
+      const clones = originals.map((element) => ({
+        ...cloneElementDeep(element),
+        id: createLocalId(element.type),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }))
+      const offsetGap = Math.max(20, 18 / Math.max(0.1, viewport.zoom))
+      const dx = axis === 'horizontal' ? direction * (selectedElementsBounds.width + offsetGap) : 0
+      const dy = axis === 'vertical' ? direction * (selectedElementsBounds.height + offsetGap) : 0
+      const nextClones = clones.map((element) => {
+        const moved = translateElement(element, dx, dy)
+        return {
+          ...moved,
+          flipX: axis === 'horizontal' ? !moved.flipX : moved.flipX,
+          flipY: axis === 'vertical' ? !moved.flipY : moved.flipY,
+          updatedAt: new Date().toISOString(),
+        }
+      })
+      const next = [...nextClones, ...prev].map((element, index) => ({ ...element, zIndex: index + 1 }))
+      elementsRef.current = next
+      setSelectedElementIds([...selectedIds])
+      return next
+    })
   }
   const toggleToolCategory = (category: ToolCategory) => {
     setOpenToolCategory((prev) => (prev === category ? null : category))
@@ -3802,6 +3959,11 @@ export function WhiteboardPage() {
       ) ?? null,
     [elements, selectedElementId],
   )
+  const selectedElements = useMemo(
+    () => elements.filter((element) => selectedElementIds.includes(element.id)),
+    [elements, selectedElementIds],
+  )
+  const selectedElementsBounds = useMemo(() => getSelectionBounds(selectedElements), [selectedElements])
   const updateSelectedGraphElement = (patch: Partial<GraphElement>) => {
     if (!selectedGraphElement) return
     setElements((prev) => {
@@ -3960,6 +4122,46 @@ export function WhiteboardPage() {
       } else if (draft.tool === 'ellipse') {
         const { x, y, width, height } = normalizeRect(draft.start, draft.end, SHAPE_MIN_SIZE, SHAPE_MIN_SIZE)
         drawEllipsePreview(ctx, x, y, width, height, shapeFilled)
+      }
+    }
+    if (draft?.type === 'polygon') {
+      const points = draft.points
+      if (points.length >= 1) {
+        ctx.strokeStyle = shapeColor
+        ctx.fillStyle = shapeFilled ? getShapeFillColor(shapeColor) : 'transparent'
+        ctx.lineWidth = shapeStrokeWidth
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+
+        // Draw polyline + live preview segment
+        ctx.beginPath()
+        ctx.moveTo(points[0].x, points[0].y)
+        for (let i = 1; i < points.length; i += 1) {
+          ctx.lineTo(points[i].x, points[i].y)
+        }
+        ctx.lineTo(draft.preview.x, draft.preview.y)
+        ctx.stroke()
+
+        // If >= 3 vertices, show filled preview (closing to first point)
+        if (points.length >= 3) {
+          ctx.beginPath()
+          ctx.moveTo(points[0].x, points[0].y)
+          for (let i = 1; i < points.length; i += 1) {
+            ctx.lineTo(points[i].x, points[i].y)
+          }
+          ctx.closePath()
+          if (shapeFilled) ctx.fill()
+          ctx.stroke()
+        }
+
+        // Draw vertex handles
+        ctx.fillStyle = '#ffffff'
+        for (const p of points) {
+          ctx.beginPath()
+          ctx.arc(p.x, p.y, Math.max(3, shapeStrokeWidth + 1.5), 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+        }
       }
     }
     if (drag?.kind === 'selection-box') {
@@ -4353,7 +4555,7 @@ export function WhiteboardPage() {
                 </label>
               </>
             ) : null}
-            {(tool === 'line' || tool === 'arrow' || tool === 'rectangle' || tool === 'ellipse') ? (
+            {(tool === 'line' || tool === 'arrow' || tool === 'rectangle' || tool === 'ellipse' || tool === 'polygon') ? (
               <>
                 <label className="eraser-size" title={t('Shape thickness')}>
                   <Minus size={13} />
@@ -4367,7 +4569,7 @@ export function WhiteboardPage() {
                   />
                   <span>{shapeStrokeWidth}px</span>
                 </label>
-                {(tool === 'rectangle' || tool === 'ellipse') ? (
+                {(tool === 'rectangle' || tool === 'ellipse' || tool === 'polygon') ? (
                   <button
                     className={shapeFilled ? 'tool-button active' : 'tool-button'}
                     onClick={() => setShapeFilled((value) => !value)}
@@ -4405,6 +4607,7 @@ export function WhiteboardPage() {
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerLeave={onPointerLeave}
+            onDoubleClick={onDoubleClick}
             onWheel={onWheel}
             onContextMenu={(event) => event.preventDefault()}
           >
@@ -4473,6 +4676,69 @@ export function WhiteboardPage() {
                 )
               })}
             </div>
+            {tool === 'move-select' && selectedElementsBounds ? (
+              <div className="move-select-floating-actions" onPointerDown={(event) => event.stopPropagation()}>
+                {[
+                  {
+                    key: 'left',
+                    label: t('Flip left'),
+                    icon: <FlipHorizontal size={16} />,
+                    style: {
+                      left: (selectedElementsBounds.x - viewport.x) * viewport.zoom - 18,
+                      top: (selectedElementsBounds.y + selectedElementsBounds.height / 2 - viewport.y) * viewport.zoom,
+                      transform: 'translate(-100%, -50%)',
+                    },
+                    onClick: () => handleMoveSelectDuplicateFlip('horizontal', -1),
+                  },
+                  {
+                    key: 'right',
+                    label: t('Flip right'),
+                    icon: <FlipHorizontal size={16} style={{ transform: 'scaleX(-1)' }} />,
+                    style: {
+                      left: (selectedElementsBounds.x + selectedElementsBounds.width - viewport.x) * viewport.zoom + 18,
+                      top: (selectedElementsBounds.y + selectedElementsBounds.height / 2 - viewport.y) * viewport.zoom,
+                      transform: 'translate(0, -50%)',
+                    },
+                    onClick: () => handleMoveSelectDuplicateFlip('horizontal', 1),
+                  },
+                  {
+                    key: 'up',
+                    label: t('Flip up'),
+                    icon: <FlipVertical size={16} />,
+                    style: {
+                      left: (selectedElementsBounds.x + selectedElementsBounds.width / 2 - viewport.x) * viewport.zoom,
+                      top: (selectedElementsBounds.y - viewport.y) * viewport.zoom - 18,
+                      transform: 'translate(-50%, -100%)',
+                    },
+                    onClick: () => handleMoveSelectDuplicateFlip('vertical', -1),
+                  },
+                  {
+                    key: 'down',
+                    label: t('Flip down'),
+                    icon: <FlipVertical size={16} style={{ transform: 'scaleY(-1)' }} />,
+                    style: {
+                      left: (selectedElementsBounds.x + selectedElementsBounds.width / 2 - viewport.x) * viewport.zoom,
+                      top: (selectedElementsBounds.y + selectedElementsBounds.height - viewport.y) * viewport.zoom + 18,
+                      transform: 'translate(-50%, 0)',
+                    },
+                    onClick: () => handleMoveSelectDuplicateFlip('vertical', 1),
+                  },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="tool-button move-select-floating-action"
+                    title={item.label}
+                    aria-label={item.label}
+                    data-tooltip={item.label}
+                    style={item.style}
+                    onClick={item.onClick}
+                  >
+                    {item.icon}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {tool === 'eraser-stroke' && eraserPointer ? (
               <div
                 className="eraser-preview"
@@ -4606,7 +4872,11 @@ export function WhiteboardPage() {
                             : element.height,
                       zIndex: getRenderZIndex(element, maxElementZIndex),
                       overflow:
-                        element.type === 'rectangle' || element.type === 'ellipse' || element.type === 'compass' || element.type === 'graph'
+                        element.type === 'rectangle' ||
+                        element.type === 'ellipse' ||
+                        element.type === 'polygon' ||
+                        element.type === 'compass' ||
+                        element.type === 'graph'
                           ? 'visible'
                           : undefined,
                       background:
@@ -4618,7 +4888,10 @@ export function WhiteboardPage() {
                           isCalculatorHTMLElement(element)
                           ? 'transparent'
                           : element.fill,
-                      transform: element.type === 'pen' ? undefined : `rotate(${element.rotation}deg)`,
+                      transform:
+                        element.type === 'pen'
+                          ? undefined
+                          : `${element.flipX ? 'scaleX(-1) ' : ''}${element.flipY ? 'scaleY(-1) ' : ''}rotate(${element.rotation}deg)`,
                     }}
                   >
                     {element.type === 'pen' ? (
@@ -4724,6 +4997,26 @@ export function WhiteboardPage() {
                     ) : null}
                     {element.type === 'rectangle' ? renderRectangleSvg(element) : null}
                     {element.type === 'ellipse' ? renderEllipseSvg(element) : null}
+                    {element.type === 'polygon' ? (
+                      <svg width={element.width} height={element.height} style={{ overflow: 'visible' }}>
+                        {(() => {
+                          const pts = (element as PolygonElement).points
+                          const pointsAttr = pts.map((p) => `${p.x},${p.y}`).join(' ')
+                          return (
+                            <polygon
+                              points={pointsAttr}
+                              fill={element.fill}
+                              stroke={element.stroke}
+                              strokeWidth={element.strokeWidth}
+                              strokeLinejoin="round"
+                              strokeLinecap="round"
+                              shapeRendering="geometricPrecision"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          )
+                        })()}
+                      </svg>
+                    ) : null}
                     {element.type === 'iframe' ? <iframe src={element.src} title={element.title} loading="lazy" /> : null}
                     {element.type === 'html' ? (
                       isCalculatorHTMLElement(element) ? (

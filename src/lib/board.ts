@@ -27,6 +27,7 @@ import type {
   LatexElement,
   MonacoElement,
   PenElement,
+  PolygonElement,
   Point,
   ProtractorElement,
   RulerElement,
@@ -142,6 +143,27 @@ export const createShapeElement = (
   }
 }
 
+export const createPolygonElement = (
+  absolutePoints: Point[],
+  zIndex: number,
+  options?: { fill?: string; stroke?: string; strokeWidth?: number },
+): PolygonElement => {
+  const points = absolutePoints.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+  const xs = points.map((point) => point.x)
+  const ys = points.map((point) => point.y)
+  const x = Math.min(...xs)
+  const y = Math.min(...ys)
+  const width = Math.max(8, Math.max(...xs) - x)
+  const height = Math.max(8, Math.max(...ys) - y)
+  return {
+    ...baseElement('polygon', x, y, width, height, zIndex),
+    points: points.map((point) => ({ x: point.x - x, y: point.y - y })),
+    stroke: options?.stroke ?? '#183153',
+    strokeWidth: options?.strokeWidth ?? 2,
+    fill: options?.fill ?? 'transparent',
+  } satisfies PolygonElement
+}
+
 export const createPenElement = (
   points: Point[],
   zIndex: number,
@@ -165,7 +187,7 @@ export const createPenElement = (
 export const createPlacedElement = (
   type: Exclude<
     ToolId,
-    'select' | 'pen' | 'line' | 'arrow' | 'rectangle' | 'ellipse'
+    'select' | 'pen' | 'polygon' | 'line' | 'arrow' | 'rectangle' | 'ellipse'
   >,
   point: Point,
   zIndex: number,

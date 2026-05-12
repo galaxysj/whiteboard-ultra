@@ -6,6 +6,7 @@ export type ToolCategory = 'general' | 'file' | 'text' | 'math'
 export type ToolId =
   | 'select'
   | 'pen'
+  | 'polygon'
   | 'text'
   | 'markdown'
   | 'code'
@@ -53,6 +54,8 @@ export interface ElementBase {
   width: number
   height: number
   rotation: number
+  flipX?: boolean
+  flipY?: boolean
   stroke: string
   fill: string
   strokeWidth: number
@@ -87,6 +90,11 @@ export interface CodeElement extends ElementBase {
 export interface ShapeElement extends ElementBase {
   type: 'line' | 'arrow' | 'rectangle' | 'ellipse'
   linePoints?: [Point, Point]
+}
+
+export interface PolygonElement extends ElementBase {
+  type: 'polygon'
+  points: Point[]
 }
 
 export interface IframeElement extends ElementBase {
@@ -147,6 +155,7 @@ export type BoardElement =
   | CodeElement
   | MonacoElement
   | ShapeElement
+  | PolygonElement
   | IframeElement
   | HTMLElement
   | AssetElement
