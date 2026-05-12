@@ -287,7 +287,7 @@ const start = async () => {
   if (isProduction) {
     if (fs.existsSync(clientIndexPath)) {
       app.use(express.static(clientDistDir))
-      app.get('*', (req, res, next) => {
+      app.get(/.*/, (req, res, next) => {
         if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
           next()
           return
@@ -313,7 +313,7 @@ const start = async () => {
     })
 
     // Ensure SPA fallback returns index.html (and applies Vite HTML transforms).
-    app.get('*', async (req, res, next) => {
+    app.get(/.*/, async (req, res, next) => {
       try {
         if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
           next()
