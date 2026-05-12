@@ -10,7 +10,8 @@
     "build:client": "tsc -b tsconfig.json && vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "stop": "npx kill-port 3001"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
