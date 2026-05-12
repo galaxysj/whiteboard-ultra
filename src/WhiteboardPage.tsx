@@ -1733,23 +1733,6 @@ const getSelectionBounds = (elements: BoardElement[]) => {
     height: Math.max(...ys) - Math.min(...ys),
   }
 }
-const flipElementWithinBounds = (
-  element: BoardElement,
-  bounds: { x: number; y: number; width: number; height: number },
-  axis: 'horizontal' | 'vertical',
-) => {
-  const itemBounds = getElementSelectionBounds(element)
-  const next = cloneElementDeep(element)
-  if (axis === 'horizontal') {
-    next.x = bounds.x + bounds.width - (itemBounds.x - bounds.x) - itemBounds.width
-    next.flipX = !next.flipX
-  } else {
-    next.y = bounds.y + bounds.height - (itemBounds.y - bounds.y) - itemBounds.height
-    next.flipY = !next.flipY
-  }
-  next.updatedAt = new Date().toISOString()
-  return next
-}
 const rectContains = (
   container: { x: number; y: number; width: number; height: number },
   item: { x: number; y: number; width: number; height: number },
@@ -2692,7 +2675,7 @@ export function WhiteboardPage() {
 
       setDraft((prev) => {
         if (prev?.type !== 'polygon') {
-          const next = { type: 'polygon', points: [point], preview: point }
+          const next: { type: 'polygon'; points: Point[]; preview: Point } = { type: 'polygon', points: [point], preview: point }
           setStatusMessage(`Polygon: 1 point`)
           return next
         }
