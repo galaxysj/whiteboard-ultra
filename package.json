@@ -20,6 +20,7 @@
     "d3-shape": "^3.2.0",
     "express": "^5.1.0",
     "fit-curve": "^0.2.0",
+    "function-plot": "^1.25.4",
     "highlight.js": "^11.11.1",
     "html2canvas": "^1.4.1",
     "katex": "^0.16.25",

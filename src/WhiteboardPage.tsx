@@ -1,62 +1,62 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ComponentType, CSSProperties } from 'react'
 import Editor from '@monaco-editor/react'
 import getStroke from 'perfect-freehand'
-import PlotlyFactoryModule from 'react-plotly.js/factory'
-import PlotlyModule from 'plotly.js-dist-min'
-import type { Data as PlotlyData, Layout as PlotlyLayout } from 'plotly.js'
+import functionPlot from 'function-plot'
+import type { FunctionPlotDatum, FunctionPlotOptions } from 'function-plot'
 import html2canvas from 'html2canvas'
 import agentCursorSvg from './assets/cursor.svg'
+import { DraftingCompass } from "lucide-react";
 import {
   ALargeSmall,
   ArrowRight,
+  SquarePlus,
   Calculator,
+
   Check,
   ChevronDown,
-  ChevronLeft,
   ChevronUp,
+  ChevronLeft,
   Circle,
   CircleX,
   Code2,
-  Copy,
-  Dot,
-  DraftingCompass,
-  Redo,
   Undo,
+  Dot,
   Eraser,
   File,
-  FileBraces,
   FileCode2,
   FileImage,
   FileVideo,
-  FlipHorizontal,
-  FlipHorizontal2,
-  FlipVertical,
+
   FolderOpen,
   Gauge,
+  Plus,
   Grid3x3,
   Minus,
   MousePointer2,
   Pen,
   PenTool,
   Pentagon,
-  Plus,
   RectangleHorizontal,
-  RotateCcw,
-  RotateCw,
   Ruler,
   Save,
   Scan,
   Send,
   Settings2,
-  Sparkles,
-  SquareCode,
   SquareMousePointer,
-  SquarePlus,
-  Trash2,
+  SquareCode,
+  Sparkles,
   Type,
+  Trash2,
+  RotateCcw,
+  RotateCw,
+  Copy,
+  Redo,
   ZoomIn,
   ZoomOut,
+  FlipHorizontal2,
+  FlipHorizontal,
+  FlipVertical,
+  Download,
 } from 'lucide-react'
 import { api } from './api.ts'
 import {
@@ -73,7 +73,6 @@ import {
   type CodeElement,
   type GraphElement,
   type MonacoElement,
-  type PenElement,
   type Point,
   type PolygonElement,
   type ShapeElement,
@@ -86,14 +85,32 @@ import {
   createPolygonElement,
   createShapeElement,
   normalizeRect,
-  renderCodeToHtml,
   renderLatexToHtml,
+  renderCodeToHtml,
   renderMarkdownToHtml,
   resizeElement,
   SHAPE_MIN_SIZE,
   translateElement,
   updateElement,
 } from './lib/board.ts'
+import { FileBraces } from 'lucide-react';
+
+type WubExportPayload = {
+  format: 'whiteboard-ultra/wub'
+  version: 1
+  exportedAt: string
+  board: {
+    id: string
+    name: string
+    updatedAt?: string
+  }
+  elements: BoardElement[]
+  assets: Array<
+    Pick<Asset, 'id' | 'kind' | 'name' | 'mimeType' | 'size' | 'storagePath' | 'sourceUrl' | 'createdAt'> & {
+      dataUrl?: string
+    }
+  >
+}
 
 
 type Viewport = { x: number; y: number; zoom: number }
@@ -124,6 +141,60 @@ type ChatMessage = {
   order: number
   status?: 'thinking' | 'done'
   detail?: string
+}
+
+function GraphRenderer({
+  element,
+  expressions,
+}: {
+  element: GraphElement
+  expressions: string[]
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    container.replaceChildren()
+
+    const data = expressions
+      .map((expression, index) => createFunctionPlotDatum(expression, index))
+      .filter((datum): datum is FunctionPlotDatum => datum !== null)
+
+    if (data.length === 0) return
+
+    const options: FunctionPlotOptions = {
+      target: container,
+      width: Math.max(1, Math.floor(element.width)),
+      height: Math.max(72, Math.floor(element.height)),
+      disableZoom: true,
+      grid: true,
+      xAxis: {
+        domain: [element.xMin, element.xMax],
+      },
+      yAxis: {
+        domain: [element.yMin, element.yMax],
+      },
+      data,
+      tip: {
+        xLine: false,
+        yLine: false,
+      },
+    }
+
+    try {
+      functionPlot(options)
+    } catch {
+      container.replaceChildren()
+    }
+
+    return () => {
+      container.replaceChildren()
+    }
+  }, [element.height, element.width, element.xMax, element.xMin, element.yMax, element.yMin, expressions])
+
+  return <div ref={containerRef} className="graph-plot-engine" />
 }
 type ProviderPreset = {
   id: string
@@ -807,17 +878,6 @@ const CALCULATOR_EMBED_HTML = `<div ${CALCULATOR_WIDGET_MARKER} style="height:10
 const createLocalId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
 const cloneElementDeep = <T,>(value: T): T =>
   typeof structuredClone === 'function' ? structuredClone(value) : (JSON.parse(JSON.stringify(value)) as T)
-const createPlotlyComponent = (
-  (PlotlyFactoryModule as unknown as { default?: (plotly: unknown) => unknown }).default ??
-  (PlotlyFactoryModule as unknown as (plotly: unknown) => unknown)
-)
-const plotlyRuntime = (PlotlyModule as unknown as { default?: unknown }).default ?? (PlotlyModule as unknown)
-const Plot = createPlotlyComponent(plotlyRuntime) as ComponentType<{
-  data: PlotlyData[]
-  layout?: Partial<PlotlyLayout>
-  config?: Record<string, unknown>
-  style?: CSSProperties
-}>
 const estimateTokenCount = (text: string) => Math.max(1, Math.ceil(text.length / 4))
 const parseProviderPresets = (raw: string | null) => {
   if (!raw) return defaultProviderPresets
@@ -1255,112 +1315,50 @@ const sanitizeGraphRange = (min: number, max: number, fallbackMin: number, fallb
 }
 const GRAPH_COLORS = ['#1f5f84', '#e0607a', '#2f948b', '#9b59b6', '#f39c12']
 
-const mathScopeNames = [
-  'abs',
-  'acos',
-  'asin',
-  'atan',
-  'ceil',
-  'cos',
-  'exp',
-  'floor',
-  'log',
-  'max',
-  'min',
-  'pow',
-  'round',
-  'sign',
-  'sin',
-  'sqrt',
-  'tan',
-  'PI',
-  'E',
-] as const
+const normalizeGraphSource = (expression: string) => {
+  let normalized = expression.replace(/\s+/g, '')
+  normalized = normalized.replace(/\^/g, '**')
+  normalized = normalized.replace(/(\d)([a-zA-Z(])/g, '$1*$2')
+  normalized = normalized.replace(/([xyEPI]|\))(?=\()/g, '$1*')
+  normalized = normalized.replace(/([xy])(?=\d)/g, '$1*')
+  normalized = normalized.replace(/([xy)])(?=[a-zA-Z])/g, '$1*')
+  return normalized
+}
 
-const compileGraphExpression = (expression: string) => {
+const createFunctionPlotDatum = (expression: string, index: number): FunctionPlotDatum | null => {
   const normalized = expression.trim()
   if (!normalized) return null
-  const source = normalized.replace(/\^/g, '**')
-  const args = ['x', ...mathScopeNames]
-  const body = `"use strict"; return (${source});`
-  try {
-    const fn = Function(...args, body) as (...params: unknown[]) => number
-    return (x: number) =>
-      fn(
-        x,
-        Math.abs,
-        Math.acos,
-        Math.asin,
-        Math.atan,
-        Math.ceil,
-        Math.cos,
-        Math.exp,
-        Math.floor,
-        Math.log,
-        Math.max,
-        Math.min,
-        Math.pow,
-        Math.round,
-        Math.sign,
-        Math.sin,
-        Math.sqrt,
-        Math.tan,
-        Math.PI,
-        Math.E,
-      )
-  } catch {
-    return null
+
+  const source = normalizeGraphSource(normalized)
+  const color = GRAPH_COLORS[index % GRAPH_COLORS.length]
+
+  if (source.includes('=')) {
+    const parts = source.split('=')
+    if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) return null
+    return {
+      fnType: 'implicit',
+      graphType: 'interval',
+      sampler: 'interval',
+      fn: `${parts[0]} - (${parts[1]})`,
+      color,
+      attr: {
+        'stroke-width': 2,
+      },
+    }
+  }
+
+  return {
+    fnType: 'linear',
+    graphType: 'polyline',
+    sampler: 'builtIn',
+    fn: source,
+    color,
+    attr: {
+      'stroke-width': 2,
+    },
   }
 }
 
-const buildGraphTrace = (element: GraphElement, expression: string, index: number): PlotlyData | null => {
-  const compiled = compileGraphExpression(expression)
-  if (!compiled) return null
-  const xRange = element.xMax - element.xMin
-  const yRange = element.yMax - element.yMin
-  if (!Number.isFinite(xRange) || !Number.isFinite(yRange) || xRange <= 0 || yRange <= 0) return null
-  const samples = Math.max(180, Math.floor(element.width))
-  const xs: number[] = []
-  const ys: number[] = []
-  for (let index = 0; index <= samples; index += 1) {
-    const x = element.xMin + (index / samples) * xRange
-    let y = Number.NaN
-    try {
-      y = compiled(x)
-    } catch {
-      xs.push(x)
-      ys.push(Number.NaN)
-      continue
-    }
-    if (!Number.isFinite(y)) {
-      xs.push(x)
-      ys.push(Number.NaN)
-      continue
-    }
-    if (Math.abs(y) > Math.max(1_000, Math.abs(element.yMin) * 40, Math.abs(element.yMax) * 40)) {
-      xs.push(x)
-      ys.push(Number.NaN)
-      continue
-    }
-    xs.push(x)
-    ys.push(y)
-  }
-  return {
-    type: 'scatter',
-    mode: 'lines',
-    x: xs,
-    y: ys,
-    line: {
-      color: GRAPH_COLORS[index % GRAPH_COLORS.length],
-      width: 2,
-      shape: 'spline',
-      smoothing: 0.6,
-    },
-    name: expression,
-    hovertemplate: 'x=%{x:.3f}<br>y=%{y:.3f}<extra></extra>',
-    connectgaps: false,
-  }
-}
 const renderRectangleSvg = (element: ShapeElement) => {
   const svgWidth = Math.max(1, element.width)
   const svgHeight = Math.max(1, element.height)
@@ -1615,14 +1613,7 @@ const getCompassHitZone = (element: Extract<BoardElement, { type: 'compass' }>, 
   }
   return null
 }
-const getRotateHandlePoint = (element: Exclude<BoardElement, { type: 'compass' }>) => {
-  if (element.type === 'pen') {
-    const bounds = getElementSelectionBounds(element)
-    const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
-    const handle = { x: center.x, y: bounds.y - 16 }
-    if (!element.rotation && !element.flipX && !element.flipY) return handle
-    return rotateAround(handle, center, degreesToRadians(element.rotation))
-  }
+const getRotateHandlePoint = (element: Exclude<BoardElement, { type: 'pen' | 'compass' }>) => {
   if (element.type === 'line' || element.type === 'arrow') {
     const start = element.linePoints?.[0] ?? { x: 0, y: element.height }
     const end = element.linePoints?.[1] ?? { x: element.width, y: 0 }
@@ -1649,40 +1640,7 @@ const isMonacoElement = (element: BoardElement): element is MonacoElement => ele
 const isCodeElement = (element: BoardElement): element is CodeElement => element.type === 'code'
 const isEditableTextElement = (element: BoardElement): element is Extract<BoardElement, { type: 'text' | 'markdown' }> =>
   element.type === 'text' || element.type === 'markdown'
-const getPenAbsolutePoints = (element: PenElement) => {
-  const absolutePoints = element.points.map((point) => ({
-    x: element.x + point.x,
-    y: element.y + point.y,
-  }))
-  if (!element.rotation && !element.flipX && !element.flipY) {
-    return absolutePoints
-  }
-  const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 }
-  const angle = degreesToRadians(element.rotation)
-  const cos = Math.cos(angle)
-  const sin = Math.sin(angle)
-  return absolutePoints.map((point) => {
-    let dx = point.x - center.x
-    let dy = point.y - center.y
-    if (element.flipX) dx = -dx
-    if (element.flipY) dy = -dy
-    return {
-      x: center.x + dx * cos - dy * sin,
-      y: center.y + dx * sin + dy * cos,
-    }
-  })
-}
 const elementBoundsHit = (element: BoardElement, point: Point) => {
-  if (element.type === 'pen') {
-    const points = getPenAbsolutePoints(element)
-    const padding = Math.max(8, element.strokeWidth * 2)
-    for (let index = 0; index < points.length - 1; index += 1) {
-      if (pointToSegmentDistance(point, points[index], points[index + 1]) <= padding) {
-        return true
-      }
-    }
-    return points.some((p) => distance(point, p) <= padding)
-  }
   if (element.type === 'compass') {
     return getCompassHitZone(element, point) !== null
   }
@@ -1722,17 +1680,6 @@ const elementBoundsHit = (element: BoardElement, point: Point) => {
   )
 }
 const getElementSelectionBounds = (element: BoardElement) => {
-  if (element.type === 'pen') {
-    const points = getPenAbsolutePoints(element)
-    const xs = points.map((point) => point.x)
-    const ys = points.map((point) => point.y)
-    return {
-      x: Math.min(...xs),
-      y: Math.min(...ys),
-      width: Math.max(...xs) - Math.min(...xs),
-      height: Math.max(...ys) - Math.min(...ys),
-    }
-  }
   if (element.type === 'compass') {
     const { hinge, leftStart, leftTip, rightStart, rightTip } = getCompassGeometry(element)
     const xs = [hinge.x, leftStart.x, leftTip.x, rightStart.x, rightTip.x]
@@ -1795,8 +1742,8 @@ const rectContains = (
   item.y >= container.y &&
   item.x + item.width <= container.x + container.width &&
   item.y + item.height <= container.y + container.height
-const isSelectableElementForTool = (tool: CanvasToolId, element: BoardElement) =>
-  tool === MOVE_SELECT_TOOL_ID || tool === PUSH_SELECT_TOOL_ID || tool === ROTATE_SELECT_TOOL_ID || element.type !== 'pen'
+const isSelectableElement = (element: BoardElement, options?: { includePen?: boolean }) =>
+  options?.includePen ? true : element.type !== 'pen'
 const compareElementStack = (a: BoardElement, b: BoardElement) => {
   if (a.type === 'compass' && b.type !== 'compass') return 1
   if (a.type !== 'compass' && b.type === 'compass') return -1
@@ -1941,6 +1888,85 @@ export function WhiteboardPage() {
     () => boards.find((board) => board.id === activeBoardId) ?? null,
     [boards, activeBoardId],
   )
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    anchor.style.display = 'none'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    // Revoke after a tick to allow the download to start.
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const exportBoardAsWub = async () => {
+    if (!activeBoard) {
+      setStatusMessage(t('Open a board first.'))
+      return
+    }
+
+    // Snapshot values to avoid races with async asset fetching.
+    const boardSnapshot = activeBoard
+    const elementsSnapshot = elementsRef.current
+
+    let boardAssets: Asset[] = []
+    try {
+      boardAssets = await api.listAssets(boardSnapshot.id)
+    } catch {
+      boardAssets = []
+    }
+
+    // Best-effort: embed asset bytes as data URLs when same-origin fetch works.
+    const assetsWithData = await Promise.all(
+      boardAssets.map(async (asset) => {
+        try {
+          const response = await fetch(asset.sourceUrl)
+          if (!response.ok) return asset
+          const blob = await response.blob()
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result || ''))
+            reader.onerror = () => reject(new Error('Failed to read asset.'))
+            reader.readAsDataURL(blob)
+          })
+          return { ...asset, dataUrl }
+        } catch {
+          return asset
+        }
+      }),
+    )
+
+    const payload: WubExportPayload = {
+      format: 'whiteboard-ultra/wub',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      board: {
+        id: boardSnapshot.id,
+        name: boardSnapshot.name,
+        updatedAt: boardSnapshot.updatedAt,
+      },
+      elements: elementsSnapshot,
+      assets: assetsWithData.map((asset) => ({
+        id: asset.id,
+        kind: asset.kind,
+        name: asset.name,
+        mimeType: asset.mimeType,
+        size: asset.size,
+        storagePath: asset.storagePath,
+        sourceUrl: asset.sourceUrl,
+        createdAt: asset.createdAt,
+        dataUrl: (asset as Asset & { dataUrl?: string }).dataUrl,
+      })),
+    }
+
+    const filenameSafe = boardSnapshot.name.trim() ? boardSnapshot.name.trim() : 'board'
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/wub+json' })
+    downloadBlob(blob, `${filenameSafe}.wub`)
+    setStatusMessage(t('Saved now'))
+  }
   const selectedChatModel = useMemo(
     () => modelPresets.find((model) => model.id === selectedChatModelId) ?? null,
     [modelPresets, selectedChatModelId],
@@ -2533,8 +2559,12 @@ export function WhiteboardPage() {
     return points
   }
 
-  const topElementAt = (point: Point) =>
-    sortByZ(elements).find((element) => isSelectableElementForTool(tool, element) && elementBoundsHit(element, point))
+  const topElementAtForTool = (point: Point, toolId: CanvasToolId) => {
+    const allowPen = toolId === MOVE_SELECT_TOOL_ID || toolId === PUSH_SELECT_TOOL_ID || toolId === ROTATE_SELECT_TOOL_ID
+    return sortByZ(elements).find(
+      (element) => isSelectableElement(element, { includePen: allowPen }) && elementBoundsHit(element, point),
+    )
+  }
   const isSelectionTool =
     tool === 'select' || tool === 'drag-select' || tool === MOVE_SELECT_TOOL_ID || tool === PUSH_SELECT_TOOL_ID || tool === ROTATE_SELECT_TOOL_ID
   const eraseAtPoints = (source: BoardElement[], points: Point[]) => {
@@ -2572,7 +2602,7 @@ export function WhiteboardPage() {
         selectedElementId != null
           ? elements.find((element) => element.id === selectedElementId) ?? null
           : null
-      if (selectedElement && selectedElement.type !== 'compass') {
+      if (selectedElement && selectedElement.type !== 'pen' && selectedElement.type !== 'compass') {
         const rotateHandle = getRotateHandlePoint(selectedElement)
         if (distance(point, rotateHandle) <= 14) {
           const center = { x: selectedElement.x + selectedElement.width / 2, y: selectedElement.y + selectedElement.height / 2 }
@@ -2591,7 +2621,7 @@ export function WhiteboardPage() {
           return
         }
       }
-      const hit = topElementAt(point)
+      const hit = topElementAtForTool(point, tool)
       if (!hit) {
         setSelectedElementIds([])
         const nextDrag: DragState =
@@ -2669,7 +2699,9 @@ export function WhiteboardPage() {
       }
       const resizeHandleHit = Math.abs(point.x - (hit.x + hit.width)) < 18 && Math.abs(point.y - (hit.y + hit.height)) < 18
       const canResize = hit.type !== 'ruler' && !isCalculatorHTMLElement(hit)
-      const rotateHandleHit = distance(point, getRotateHandlePoint(hit)) <= 14
+      const rotateHandleHit =
+        hit.type !== 'pen' &&
+        distance(point, getRotateHandlePoint(hit)) <= 14
       if (rotateHandleHit) {
         const center = { x: hit.x + hit.width / 2, y: hit.y + hit.height / 2 }
         const startAngle =
@@ -2894,7 +2926,11 @@ export function WhiteboardPage() {
     }
     if (tool === 'graph' || tool === 'ruler' || tool === 'protractor') {
       const placed = createPlacedElement(tool, point, getNextZIndex(elements))
-      commitElements([...elements, placed]); setSelectedElementId(placed.id)
+      commitElements([...elements, placed]);
+      setSelectedElementId(placed.id)
+      if (tool === 'graph') {
+        setTool('select')
+      }
     }
   }
 
@@ -3167,9 +3203,13 @@ export function WhiteboardPage() {
       const selectionRect = normalizeRect(activeDrag.start, activeDrag.end)
       const isClickSelection = distance(activeDrag.start, activeDrag.end) < 4
       const nextSelectedIds = isClickSelection
-        ? (topElementAt(activeDrag.end)?.id ? [topElementAt(activeDrag.end)!.id] : [])
+        ? (topElementAtForTool(activeDrag.end, tool)?.id ? [topElementAtForTool(activeDrag.end, tool)!.id] : [])
         : sortByZ(elementsRef.current)
-          .filter((element) => isSelectableElementForTool(tool, element) && rectContains(selectionRect, getElementSelectionBounds(element)))
+          .filter((element) =>
+            isSelectableElement(element, {
+              includePen: tool === MOVE_SELECT_TOOL_ID || tool === PUSH_SELECT_TOOL_ID || tool === ROTATE_SELECT_TOOL_ID,
+            }) && rectContains(selectionRect, getElementSelectionBounds(element)),
+          )
           .map((e) => e.id)
       setSelectedElementIds(nextSelectedIds)
     } else if (
@@ -3395,7 +3435,9 @@ export function WhiteboardPage() {
       })
       const next = [...nextClones, ...prev].map((element, index) => ({ ...element, zIndex: index + 1 }))
       elementsRef.current = next
-      setSelectedElementIds(nextClones.map((element) => element.id))
+      // Keep the original selection active after duplicating+flipping,
+      // so repeated flips continue to operate on the same source elements.
+      setSelectedElementIds([...selectedIds])
       return next
     })
   }
@@ -4299,6 +4341,9 @@ export function WhiteboardPage() {
           <button onClick={() => void saveNow()}>
             <Save size={16} /> {t('Save')}
           </button>
+          <button onClick={() => void exportBoardAsWub()} disabled={!activeBoardId}>
+            <Download size={16} /> WUB
+          </button>
           <button
             onClick={() => {
               setSettingsSection('ai')
@@ -5049,6 +5094,19 @@ export function WhiteboardPage() {
                 </div>
               </div>
             ) : null}
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '10px',
+                right: '10px',
+                opacity: '0.5',
+                fontSize: '12px',
+                zIndex: 10000,
+                pointerEvents: 'none',
+              }}
+            >
+              Original source: github.com/galaxysj/whiteboard-ultra
+            </div>
             <canvas className="pen-layer" ref={penCanvasRef} />
             <div
               className="canvas-surface"
@@ -5135,7 +5193,10 @@ export function WhiteboardPage() {
                         <path
                           d={strokePolygonToPath(
                             getStrokePolygon(
-                              getPenAbsolutePoints(element),
+                              element.points.map((point) => ({
+                                x: element.x + point.x,
+                                y: element.y + point.y,
+                              })),
                               element.strokeWidth,
                             ),
                           )}
@@ -5541,63 +5602,13 @@ export function WhiteboardPage() {
                           const isInlineEditorOpen = selected && isSelectionTool
                           const editorRowCount = Math.max(1, graphExpressionDrafts.length)
                           const inlineEditorHeight = isInlineEditorOpen ? getGraphInlineEditorHeight(editorRowCount) : 0
-                          const plotHeight = Math.max(72, Math.floor(element.height))
                           const [xMin, xMax] = sanitizeGraphRange(element.xMin, element.xMax, -8, 8)
                           const [yMin, yMax] = sanitizeGraphRange(element.yMin, element.yMax, -5, 5)
-                          const traces = normalizeGraphExpressions(element)
-                            .map((expression, index) => buildGraphTrace(element, expression, index))
-                            .filter((trace): trace is PlotlyData => trace !== null)
-                          const layout: Partial<PlotlyLayout> = {
-                            width: Math.max(1, Math.floor(element.width)),
-                            height: plotHeight,
-                            margin: { l: 34, r: 10, t: 10, b: 28 },
-                            paper_bgcolor: 'rgba(255,255,255,0)',
-                            plot_bgcolor: 'rgba(255,255,255,0.68)',
-                            xaxis: {
-                              range: [xMin, xMax],
-                              zeroline: true,
-                              zerolinecolor: '#0f2029',
-                              zerolinewidth: 1.4,
-                              showgrid: true,
-                              gridcolor: '#d7dee7',
-                              gridwidth: 1,
-                              fixedrange: true,
-                              tickfont: { size: 10, color: '#23313a' },
-                            },
-                            yaxis: {
-                              range: [yMin, yMax],
-                              zeroline: true,
-                              zerolinecolor: '#0f2029',
-                              zerolinewidth: 1.4,
-                              showgrid: true,
-                              gridcolor: '#d7dee7',
-                              gridwidth: 1,
-                              fixedrange: true,
-                              tickfont: { size: 10, color: '#23313a' },
-                            },
-                            showlegend: traces.length > 1,
-                            legend: {
-                              x: 0.01,
-                              y: 0.99,
-                              bgcolor: 'rgba(255,255,255,0.72)',
-                              bordercolor: '#d3dbe5',
-                              borderwidth: 1,
-                              font: { size: 10, color: '#20303a' },
-                            },
-                          }
+                          const normalizedElement = { ...element, xMin, xMax, yMin, yMax }
                           return (
                             <>
                               <div className="graph-plot">
-                                <Plot
-                                  data={traces}
-                                  layout={layout}
-                                  config={{
-                                    staticPlot: true,
-                                    displayModeBar: false,
-                                    responsive: false,
-                                  }}
-                                  style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
-                                />
+                                <GraphRenderer element={normalizedElement} expressions={normalizeGraphExpressions(element)} />
                               </div>
                               {isInlineEditorOpen ? (
                                 <div className="graph-inline-editor" style={{ minHeight: inlineEditorHeight }}>
