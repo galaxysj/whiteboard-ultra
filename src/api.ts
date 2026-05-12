@@ -33,8 +33,6 @@ const parseErrorText = (value: unknown): string => {
   }
   return String(value)
 }
-  }
-}
 
 const asJson = async <T>(response: Response): Promise<T> => {
   const raw = await response.text()
