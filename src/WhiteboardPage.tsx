@@ -7,57 +7,56 @@ import PlotlyModule from 'plotly.js-dist-min'
 import type { Data as PlotlyData, Layout as PlotlyLayout } from 'plotly.js'
 import html2canvas from 'html2canvas'
 import agentCursorSvg from './assets/cursor.svg'
-import { DraftingCompass } from "lucide-react";
 import {
   ALargeSmall,
   ArrowRight,
-  SquarePlus,
   Calculator,
-
   Check,
   ChevronDown,
-  ChevronUp,
   ChevronLeft,
+  ChevronUp,
   Circle,
   CircleX,
   Code2,
-  Undo,
+  Copy,
   Dot,
+  DraftingCompass,
+  Redo,
+  Undo,
   Eraser,
   File,
+  FileBraces,
   FileCode2,
   FileImage,
   FileVideo,
-
+  FlipHorizontal,
+  FlipHorizontal2,
+  FlipVertical,
   FolderOpen,
   Gauge,
-  Plus,
   Grid3x3,
   Minus,
   MousePointer2,
   Pen,
   PenTool,
   Pentagon,
+  Plus,
   RectangleHorizontal,
+  RotateCcw,
+  RotateCw,
   Ruler,
   Save,
   Scan,
   Send,
   Settings2,
-  SquareMousePointer,
-  SquareCode,
   Sparkles,
-  Type,
+  SquareCode,
+  SquareMousePointer,
+  SquarePlus,
   Trash2,
-  RotateCcw,
-  RotateCw,
-  Copy,
-  Redo,
+  Type,
   ZoomIn,
   ZoomOut,
-  FlipHorizontal2,
-  FlipHorizontal,
-  FlipVertical,
 } from 'lucide-react'
 import { api } from './api.ts'
 import {
@@ -74,6 +73,7 @@ import {
   type CodeElement,
   type GraphElement,
   type MonacoElement,
+  type PenElement,
   type Point,
   type PolygonElement,
   type ShapeElement,
@@ -86,15 +86,14 @@ import {
   createPolygonElement,
   createShapeElement,
   normalizeRect,
-  renderLatexToHtml,
   renderCodeToHtml,
+  renderLatexToHtml,
   renderMarkdownToHtml,
   resizeElement,
   SHAPE_MIN_SIZE,
   translateElement,
   updateElement,
 } from './lib/board.ts'
-import { FileBraces } from 'lucide-react';
 
 
 type Viewport = { x: number; y: number; zoom: number }
@@ -1284,30 +1283,34 @@ const compileGraphExpression = (expression: string) => {
   const source = normalized.replace(/\^/g, '**')
   const args = ['x', ...mathScopeNames]
   const body = `"use strict"; return (${source});`
-  const fn = Function(...args, body) as (...params: unknown[]) => number
-  return (x: number) =>
-    fn(
-      x,
-      Math.abs,
-      Math.acos,
-      Math.asin,
-      Math.atan,
-      Math.ceil,
-      Math.cos,
-      Math.exp,
-      Math.floor,
-      Math.log,
-      Math.max,
-      Math.min,
-      Math.pow,
-      Math.round,
-      Math.sign,
-      Math.sin,
-      Math.sqrt,
-      Math.tan,
-      Math.PI,
-      Math.E,
-    )
+  try {
+    const fn = Function(...args, body) as (...params: unknown[]) => number
+    return (x: number) =>
+      fn(
+        x,
+        Math.abs,
+        Math.acos,
+        Math.asin,
+        Math.atan,
+        Math.ceil,
+        Math.cos,
+        Math.exp,
+        Math.floor,
+        Math.log,
+        Math.max,
+        Math.min,
+        Math.pow,
+        Math.round,
+        Math.sign,
+        Math.sin,
+        Math.sqrt,
+        Math.tan,
+        Math.PI,
+        Math.E,
+      )
+  } catch {
+    return null
+  }
 }
 
 const buildGraphTrace = (element: GraphElement, expression: string, index: number): PlotlyData | null => {
@@ -1612,7 +1615,14 @@ const getCompassHitZone = (element: Extract<BoardElement, { type: 'compass' }>, 
   }
   return null
 }
-const getRotateHandlePoint = (element: Exclude<BoardElement, { type: 'pen' | 'compass' }>) => {
+const getRotateHandlePoint = (element: Exclude<BoardElement, { type: 'compass' }>) => {
+  if (element.type === 'pen') {
+    const bounds = getElementSelectionBounds(element)
+    const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+    const handle = { x: center.x, y: bounds.y - 16 }
+    if (!element.rotation && !element.flipX && !element.flipY) return handle
+    return rotateAround(handle, center, degreesToRadians(element.rotation))
+  }
   if (element.type === 'line' || element.type === 'arrow') {
     const start = element.linePoints?.[0] ?? { x: 0, y: element.height }
     const end = element.linePoints?.[1] ?? { x: element.width, y: 0 }
@@ -1639,7 +1649,40 @@ const isMonacoElement = (element: BoardElement): element is MonacoElement => ele
 const isCodeElement = (element: BoardElement): element is CodeElement => element.type === 'code'
 const isEditableTextElement = (element: BoardElement): element is Extract<BoardElement, { type: 'text' | 'markdown' }> =>
   element.type === 'text' || element.type === 'markdown'
+const getPenAbsolutePoints = (element: PenElement) => {
+  const absolutePoints = element.points.map((point) => ({
+    x: element.x + point.x,
+    y: element.y + point.y,
+  }))
+  if (!element.rotation && !element.flipX && !element.flipY) {
+    return absolutePoints
+  }
+  const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 }
+  const angle = degreesToRadians(element.rotation)
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  return absolutePoints.map((point) => {
+    let dx = point.x - center.x
+    let dy = point.y - center.y
+    if (element.flipX) dx = -dx
+    if (element.flipY) dy = -dy
+    return {
+      x: center.x + dx * cos - dy * sin,
+      y: center.y + dx * sin + dy * cos,
+    }
+  })
+}
 const elementBoundsHit = (element: BoardElement, point: Point) => {
+  if (element.type === 'pen') {
+    const points = getPenAbsolutePoints(element)
+    const padding = Math.max(8, element.strokeWidth * 2)
+    for (let index = 0; index < points.length - 1; index += 1) {
+      if (pointToSegmentDistance(point, points[index], points[index + 1]) <= padding) {
+        return true
+      }
+    }
+    return points.some((p) => distance(point, p) <= padding)
+  }
   if (element.type === 'compass') {
     return getCompassHitZone(element, point) !== null
   }
@@ -1679,6 +1722,17 @@ const elementBoundsHit = (element: BoardElement, point: Point) => {
   )
 }
 const getElementSelectionBounds = (element: BoardElement) => {
+  if (element.type === 'pen') {
+    const points = getPenAbsolutePoints(element)
+    const xs = points.map((point) => point.x)
+    const ys = points.map((point) => point.y)
+    return {
+      x: Math.min(...xs),
+      y: Math.min(...ys),
+      width: Math.max(...xs) - Math.min(...xs),
+      height: Math.max(...ys) - Math.min(...ys),
+    }
+  }
   if (element.type === 'compass') {
     const { hinge, leftStart, leftTip, rightStart, rightTip } = getCompassGeometry(element)
     const xs = [hinge.x, leftStart.x, leftTip.x, rightStart.x, rightTip.x]
@@ -1741,7 +1795,8 @@ const rectContains = (
   item.y >= container.y &&
   item.x + item.width <= container.x + container.width &&
   item.y + item.height <= container.y + container.height
-const isSelectableElement = (element: BoardElement) => element.type !== 'pen'
+const isSelectableElementForTool = (tool: CanvasToolId, element: BoardElement) =>
+  tool === MOVE_SELECT_TOOL_ID || tool === PUSH_SELECT_TOOL_ID || tool === ROTATE_SELECT_TOOL_ID || element.type !== 'pen'
 const compareElementStack = (a: BoardElement, b: BoardElement) => {
   if (a.type === 'compass' && b.type !== 'compass') return 1
   if (a.type !== 'compass' && b.type === 'compass') return -1
@@ -2479,7 +2534,7 @@ export function WhiteboardPage() {
   }
 
   const topElementAt = (point: Point) =>
-    sortByZ(elements).find((element) => isSelectableElement(element) && elementBoundsHit(element, point))
+    sortByZ(elements).find((element) => isSelectableElementForTool(tool, element) && elementBoundsHit(element, point))
   const isSelectionTool =
     tool === 'select' || tool === 'drag-select' || tool === MOVE_SELECT_TOOL_ID || tool === PUSH_SELECT_TOOL_ID || tool === ROTATE_SELECT_TOOL_ID
   const eraseAtPoints = (source: BoardElement[], points: Point[]) => {
@@ -2517,7 +2572,7 @@ export function WhiteboardPage() {
         selectedElementId != null
           ? elements.find((element) => element.id === selectedElementId) ?? null
           : null
-      if (selectedElement && selectedElement.type !== 'pen' && selectedElement.type !== 'compass') {
+      if (selectedElement && selectedElement.type !== 'compass') {
         const rotateHandle = getRotateHandlePoint(selectedElement)
         if (distance(point, rotateHandle) <= 14) {
           const center = { x: selectedElement.x + selectedElement.width / 2, y: selectedElement.y + selectedElement.height / 2 }
@@ -2614,9 +2669,7 @@ export function WhiteboardPage() {
       }
       const resizeHandleHit = Math.abs(point.x - (hit.x + hit.width)) < 18 && Math.abs(point.y - (hit.y + hit.height)) < 18
       const canResize = hit.type !== 'ruler' && !isCalculatorHTMLElement(hit)
-      const rotateHandleHit =
-        hit.type !== 'pen' &&
-        distance(point, getRotateHandlePoint(hit)) <= 14
+      const rotateHandleHit = distance(point, getRotateHandlePoint(hit)) <= 14
       if (rotateHandleHit) {
         const center = { x: hit.x + hit.width / 2, y: hit.y + hit.height / 2 }
         const startAngle =
@@ -3116,7 +3169,7 @@ export function WhiteboardPage() {
       const nextSelectedIds = isClickSelection
         ? (topElementAt(activeDrag.end)?.id ? [topElementAt(activeDrag.end)!.id] : [])
         : sortByZ(elementsRef.current)
-          .filter((element) => isSelectableElement(element) && rectContains(selectionRect, getElementSelectionBounds(element)))
+          .filter((element) => isSelectableElementForTool(tool, element) && rectContains(selectionRect, getElementSelectionBounds(element)))
           .map((e) => e.id)
       setSelectedElementIds(nextSelectedIds)
     } else if (
@@ -5082,10 +5135,7 @@ export function WhiteboardPage() {
                         <path
                           d={strokePolygonToPath(
                             getStrokePolygon(
-                              element.points.map((point) => ({
-                                x: element.x + point.x,
-                                y: element.y + point.y,
-                              })),
+                              getPenAbsolutePoints(element),
                               element.strokeWidth,
                             ),
                           )}
