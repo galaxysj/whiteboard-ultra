@@ -37,7 +37,7 @@ const host = process.env.HOST || '0.0.0.0'
 const uploadsDir = getUploadsDir()
 const isProduction = process.env.NODE_ENV === 'production'
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
-const projectRootDir = path.resolve(currentDir, '..')
+const projectRootDir = isProduction ? path.resolve(currentDir, '../..') : path.resolve(currentDir, '..')
 
 // Build output (see vite.config.ts => build.outDir)
 const clientDistDir = path.resolve(projectRootDir, 'dist/client')
@@ -287,7 +287,7 @@ const start = async () => {
   if (isProduction) {
     if (fs.existsSync(clientIndexPath)) {
       app.use(express.static(clientDistDir))
-      app.get(/.*/, (req, res, next) => {
+      app.get('/{*path}', (req, res, next) => {
         if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
           next()
           return
@@ -313,7 +313,7 @@ const start = async () => {
     })
 
     // Ensure SPA fallback returns index.html (and applies Vite HTML transforms).
-    app.get(/.*/, async (req, res, next) => {
+    app.get('/{*path}', async (req, res, next) => {
       try {
         if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
           next()
