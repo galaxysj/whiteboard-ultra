@@ -110,6 +110,9 @@ const extractText = (payload: unknown): string => {
   }
   if (payload && typeof payload === 'object') {
     const record = payload as Record<string, unknown>
+    if (record.type === 'reasoning') {
+      return ''
+    }
     if (typeof record.text === 'string') {
       return record.text
     }
@@ -135,11 +138,75 @@ const extractText = (payload: unknown): string => {
   return ''
 }
 
+const extractReasoningText = (payload: unknown): string => {
+  if (!payload) return ''
+  if (typeof payload === 'string') return ''
+  if (Array.isArray(payload)) {
+    return payload
+      .map((entry) => extractReasoningText(entry))
+      .filter(Boolean)
+      .join('\n')
+      .trim()
+  }
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>
+    const type = typeof record.type === 'string' ? record.type : ''
+    if (type === 'reasoning') {
+      return (
+        extractText(record.summary) ||
+        extractText(record.text) ||
+        extractText(record.content) ||
+        extractText(record.output_text) ||
+        extractText(record.message)
+      ).trim()
+    }
+    return (
+      extractReasoningText(record.output) ||
+      extractReasoningText(record.contents) ||
+      extractReasoningText(record.candidates) ||
+      extractReasoningText(record.choices) ||
+      extractReasoningText(record.summary)
+    ).trim()
+  }
+  return ''
+}
+
+const parseGeminiTextParts = (parts: unknown): { thought?: string; answer: string } => {
+  const textParts = Array.isArray(parts)
+    ? parts
+        .map((part) => {
+          if (!part || typeof part !== 'object') return ''
+          const record = part as Record<string, unknown>
+          if (typeof record.text === 'string') return record.text.trim()
+          return ''
+        })
+        .filter(Boolean)
+    : []
+
+  if (textParts.length === 0) {
+    return { answer: '' }
+  }
+  if (textParts.length === 1) {
+    return { answer: textParts[0] }
+  }
+  return {
+    thought: textParts[0],
+    answer: textParts.slice(1).join('\n').trim(),
+  }
+}
+
+type AskRunResult = {
+  answer: string
+  thought?: string
+}
+
 const callOpenAI = async (
   settings: AIProviderSettings,
   system: string,
   prompt: string,
+  includeThoughts = false,
 ) => {
+  const reasoning = includeThoughts ? { summary: 'auto' } : undefined
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
@@ -158,6 +225,7 @@ const callOpenAI = async (
           content: [{ type: 'input_text', text: prompt }],
         },
       ],
+      ...(reasoning ? { reasoning } : {}),
     }),
   })
 
@@ -206,6 +274,7 @@ const callGemini = async (
   settings: AIProviderSettings,
   system: string,
   prompt: string,
+  includeThoughts = false,
 ) => {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${settings.modelId}:generateContent?key=${encodeURIComponent(settings.apiKey)}`,
@@ -222,6 +291,7 @@ const callGemini = async (
             parts: [{ text: prompt }],
           },
         ],
+        ...(includeThoughts ? { generationConfig: { thinkingConfig: { includeThoughts: true } } } : {}),
       }),
     },
   )
@@ -232,7 +302,14 @@ const callGemini = async (
 
   const payload = (await response.json()) as Record<string, unknown>
   const candidates = Array.isArray(payload.candidates) ? payload.candidates : []
-  return extractText(candidates[0])
+  const candidate = candidates[0] as Record<string, unknown> | undefined
+  const content =
+    candidate?.content && typeof candidate.content === 'object'
+      ? (candidate.content as Record<string, unknown>)
+      : undefined
+  const parts = Array.isArray(content?.parts) ? content?.parts : []
+  const parsed = parseGeminiTextParts(parts)
+  return parsed.answer || extractText(candidate)
 }
 
 type StreamDeltaHandler = (delta: string) => void
@@ -269,7 +346,10 @@ const callOpenAIStream = async (
   system: string,
   prompt: string,
   onDelta: StreamDeltaHandler,
+  onThoughtDelta?: StreamDeltaHandler,
+  includeThoughts = false,
 ) => {
+  const reasoning = includeThoughts ? { summary: 'auto' } : undefined
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
@@ -289,6 +369,7 @@ const callOpenAIStream = async (
           content: [{ type: 'input_text', text: prompt }],
         },
       ],
+      ...(reasoning ? { reasoning } : {}),
     }),
   })
   if (!response.ok) {
@@ -297,9 +378,18 @@ const callOpenAIStream = async (
   await readSse(response, (payload) => {
     if (payload === '[DONE]') return
     try {
-      const event = JSON.parse(payload) as { type?: string; delta?: string }
+      const event = JSON.parse(payload) as { type?: string; delta?: string; summary?: unknown }
       if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
         onDelta(event.delta)
+        return
+      }
+      if (event.type === 'response.reasoning_text.delta' && typeof event.delta === 'string') {
+        onThoughtDelta?.(event.delta)
+        return
+      }
+      if (event.type === 'response.reasoning_summary_text.delta') {
+        const summary = extractReasoningText(event.summary)
+        if (summary) onThoughtDelta?.(summary)
       }
     } catch {
       // Ignore malformed stream fragments and continue.
@@ -354,6 +444,8 @@ const callGeminiStream = async (
   system: string,
   prompt: string,
   onDelta: StreamDeltaHandler,
+  onThoughtDelta?: StreamDeltaHandler,
+  includeThoughts = false,
 ) => {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${settings.modelId}:streamGenerateContent?alt=sse&key=${encodeURIComponent(settings.apiKey)}`,
@@ -370,6 +462,7 @@ const callGeminiStream = async (
             parts: [{ text: prompt }],
           },
         ],
+        ...(includeThoughts ? { generationConfig: { thinkingConfig: { includeThoughts: true } } } : {}),
       }),
     },
   )
@@ -383,6 +476,10 @@ const callGeminiStream = async (
     if (payload === '[DONE]') return
     try {
       const event = JSON.parse(payload) as Record<string, unknown>
+      const thought = extractReasoningText(event)
+      if (thought) {
+        onThoughtDelta?.(thought)
+      }
       const text = extractText(event)
       if (text) onDelta(text)
     } catch {
@@ -395,16 +492,17 @@ export const generateAgentResponse = async (
   settings: AIProviderSettings,
   system: string,
   prompt: string,
+  includeThoughts = false,
 ) => {
   ensureConfigured(settings)
 
   let responseText = ''
   switch (settings.providerType) {
     case 'gemini':
-      responseText = await callGemini(settings, system, prompt)
+      responseText = await callGemini(settings, system, prompt, includeThoughts)
       break
     case 'openai':
-      responseText = await callOpenAI(settings, system, prompt)
+      responseText = await callOpenAI(settings, system, prompt, includeThoughts)
       break
     case 'compatible':
       responseText = await callCompatible(settings, system, prompt)
@@ -425,15 +523,17 @@ export const streamAgentResponse = async (
   system: string,
   prompt: string,
   onDelta: StreamDeltaHandler,
+  onThoughtDelta?: StreamDeltaHandler,
+  includeThoughts = false,
 ) => {
   ensureConfigured(settings)
 
   switch (settings.providerType) {
     case 'gemini':
-      await callGeminiStream(settings, system, prompt, onDelta)
+      await callGeminiStream(settings, system, prompt, onDelta, onThoughtDelta, includeThoughts)
       return
     case 'openai':
-      await callOpenAIStream(settings, system, prompt, onDelta)
+      await callOpenAIStream(settings, system, prompt, onDelta, onThoughtDelta, includeThoughts)
       return
     case 'compatible':
       await callCompatibleStream(settings, system, prompt, onDelta)
@@ -2024,7 +2124,8 @@ const runOpenAIAskTools = async (
   runtime: AskRuntime,
   prompt: string,
   systemPrompt: string,
-) => {
+  includeThoughts = false,
+) : Promise<AskRunResult> => {
   const request = async (body: Record<string, unknown>) => {
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -2048,6 +2149,7 @@ const runOpenAIAskTools = async (
     ],
     tools: askToolsForResponses,
     tool_choice: 'auto',
+    ...(includeThoughts ? { reasoning: { summary: 'auto' } } : {}),
   })
 
   for (let turn = 0; turn < 12; turn += 1) {
@@ -2060,7 +2162,10 @@ const runOpenAIAskTools = async (
 
     if (calls.length === 0) {
       const text = typeof payload.output_text === 'string' ? payload.output_text.trim() : extractText(output).trim()
-      return text
+      return {
+        answer: text,
+        thought: extractReasoningText(output).trim(),
+      }
     }
 
     const outputs = []
@@ -2083,10 +2188,11 @@ const runOpenAIAskTools = async (
       input: outputs,
       tools: askToolsForResponses,
       tool_choice: 'auto',
+      ...(includeThoughts ? { reasoning: { summary: 'auto' } } : {}),
     })
   }
 
-  return ''
+  return { answer: '', thought: '' }
 }
 
 const runCompatibleAskTools = async (
@@ -2094,7 +2200,8 @@ const runCompatibleAskTools = async (
   runtime: AskRuntime,
   prompt: string,
   systemPrompt: string,
-) => {
+  includeThoughts = false,
+) : Promise<AskRunResult> => {
   const baseUrl = settings.baseUrl.replace(/\/$/, '')
   const messages: Array<Record<string, unknown>> = [
     { role: 'system', content: systemPrompt },
@@ -2114,6 +2221,7 @@ const runCompatibleAskTools = async (
         messages,
         tools: askToolsForCompletions,
         tool_choice: 'auto',
+        ...(includeThoughts ? { reasoning: { summary: 'auto' } } : {}),
       }),
     })
     if (!response.ok) {
@@ -2129,7 +2237,7 @@ const runCompatibleAskTools = async (
 
     const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : []
     if (toolCalls.length === 0) {
-      return extractText(message.content).trim()
+      return { answer: extractText(message.content).trim(), thought: '' }
     }
 
     messages.push({
@@ -2167,7 +2275,7 @@ const runCompatibleAskTools = async (
     }
   }
 
-  return ''
+  return { answer: '', thought: '' }
 }
 
 const runGeminiAskTools = async (
@@ -2175,7 +2283,8 @@ const runGeminiAskTools = async (
   runtime: AskRuntime,
   prompt: string,
   systemPrompt: string,
-) => {
+  includeThoughts = false,
+) : Promise<AskRunResult> => {
   const contents: Array<Record<string, unknown>> = [{ role: 'user', parts: [{ text: prompt }] }]
 
   for (let turn = 0; turn < 24; turn += 1) {
@@ -2188,6 +2297,7 @@ const runGeminiAskTools = async (
           systemInstruction: { parts: [{ text: systemPrompt }] },
           tools: askToolsForGemini,
           contents,
+          ...(includeThoughts ? { generationConfig: { thinkingConfig: { includeThoughts: true } } } : {}),
         }),
       },
     )
@@ -2208,7 +2318,12 @@ const runGeminiAskTools = async (
     }) as Array<Record<string, unknown>>
 
     if (functionParts.length === 0) {
-      return extractText(parts).trim() || extractText(candidate).trim()
+      const parsed = parseGeminiTextParts(parts)
+      const fallback = extractText(candidate).trim()
+      return {
+        answer: parsed.answer || fallback,
+        thought: parsed.thought?.trim() || '',
+      }
     }
 
     contents.push({ role: 'model', parts })
@@ -2231,13 +2346,14 @@ const runGeminiAskTools = async (
     contents.push({ role: 'user', parts: responseParts })
   }
 
-  return ''
+  return { answer: '', thought: '' }
 }
 
 export const runAskWithToolCalls = async (
   settings: AIProviderSettings,
   board: Board,
   question: string,
+  includeThoughts = false,
   selectedElementId?: string,
   viewOrigin?: Point,
   viewBounds?: Rect,
@@ -2258,12 +2374,19 @@ export const runAskWithToolCalls = async (
   const userPrompt = buildAskPrompt(board, selectedElementId, question, runtime.viewOrigin, viewBounds, history)
 
   let answer = ''
+  let thought = ''
   if (settings.providerType === 'openai') {
-    answer = await runOpenAIAskTools(settings, runtime, userPrompt, systemPrompt)
+    const result = await runOpenAIAskTools(settings, runtime, userPrompt, systemPrompt, includeThoughts)
+    answer = result.answer
+    thought = result.thought ?? ''
   } else if (settings.providerType === 'compatible') {
-    answer = await runCompatibleAskTools(settings, runtime, userPrompt, systemPrompt)
+    const result = await runCompatibleAskTools(settings, runtime, userPrompt, systemPrompt, includeThoughts)
+    answer = result.answer
+    thought = result.thought ?? ''
   } else if (settings.providerType === 'gemini') {
-    answer = await runGeminiAskTools(settings, runtime, userPrompt, systemPrompt)
+    const result = await runGeminiAskTools(settings, runtime, userPrompt, systemPrompt, includeThoughts)
+    answer = result.answer
+    thought = result.thought ?? ''
   } else {
     throw new Error('Unsupported provider.')
   }
@@ -2271,6 +2394,7 @@ export const runAskWithToolCalls = async (
   return {
     answer: answer.trim() || 'AI provider returned an empty response.',
     toolEvents: runtime.toolEvents,
+    thought: thought.trim() || undefined,
     thoughtSeconds: Math.max(0.1, (Date.now() - startedAt) / 1000),
   }
 }
@@ -2280,6 +2404,7 @@ const runOpenAIToolCalls = async (
   runtime: BuildRuntime,
   prompt: string,
   systemPrompt: string,
+  includeThoughts = false,
 ) => {
   const request = async (body: Record<string, unknown>) => {
     const response = await fetch('https://api.openai.com/v1/responses', {
@@ -2304,6 +2429,7 @@ const runOpenAIToolCalls = async (
     ],
     tools: buildToolsForResponses,
     tool_choice: 'auto',
+    ...(includeThoughts ? { reasoning: { summary: 'auto' } } : {}),
   })
 
   for (let turn = 0; turn < 12; turn += 1) {
@@ -2339,6 +2465,7 @@ const runOpenAIToolCalls = async (
       input: outputs,
       tools: buildToolsForResponses,
       tool_choice: 'auto',
+      ...(includeThoughts ? { reasoning: { summary: 'auto' } } : {}),
     })
   }
 
@@ -2350,6 +2477,7 @@ const runCompatibleToolCalls = async (
   runtime: BuildRuntime,
   prompt: string,
   systemPrompt: string,
+  includeThoughts = false,
 ) => {
   const baseUrl = settings.baseUrl.replace(/\/$/, '')
   const messages: Array<Record<string, unknown>> = [
@@ -2364,6 +2492,7 @@ const runCompatibleToolCalls = async (
         messages,
         tools: buildToolsForCompletions,
         tool_choice: 'auto',
+        ...(includeThoughts ? { reasoning: { summary: 'auto' } } : {}),
       }
     const toolNames = buildToolsForCompletions.map((t) => t.function.name)
     console.log('[DEBUG build tools] count:', toolNames.length, 'names:', toolNames.join(', '))
@@ -2444,6 +2573,7 @@ const runGeminiToolCalls = async (
   runtime: BuildRuntime,
   prompt: string,
   systemPrompt: string,
+  includeThoughts = false,
 ) => {
   const contents: Array<Record<string, unknown>> = [
     { role: 'user', parts: [{ text: prompt }] },
@@ -2459,6 +2589,7 @@ const runGeminiToolCalls = async (
           systemInstruction: { parts: [{ text: systemPrompt }] },
           tools: buildToolsForGemini,
           contents,
+          ...(includeThoughts ? { generationConfig: { thinkingConfig: { includeThoughts: true } } } : {}),
         }),
       },
     )
@@ -2517,6 +2648,7 @@ export const runBuildWithToolCalls = async (
   board: Board,
   prompt: string,
   mode: 'build' | 'insert' = 'build',
+  includeThoughts = false,
   selectedElementId?: string,
   viewOrigin?: Point,
   viewBounds?: Rect,
@@ -2540,11 +2672,11 @@ export const runBuildWithToolCalls = async (
   let message = ''
   console.log('[DEBUG runBuildWithToolCalls] providerType:', settings.providerType, 'modelId:', settings.modelId)
   if (settings.providerType === 'openai') {
-    message = await runOpenAIToolCalls(settings, runtime, userPrompt, systemPrompt)
+    message = await runOpenAIToolCalls(settings, runtime, userPrompt, systemPrompt, includeThoughts)
   } else if (settings.providerType === 'compatible') {
-    message = await runCompatibleToolCalls(settings, runtime, userPrompt, systemPrompt)
+    message = await runCompatibleToolCalls(settings, runtime, userPrompt, systemPrompt, includeThoughts)
   } else if (settings.providerType === 'gemini') {
-    message = await runGeminiToolCalls(settings, runtime, userPrompt, systemPrompt)
+    message = await runGeminiToolCalls(settings, runtime, userPrompt, systemPrompt, includeThoughts)
   } else {
     throw new Error('Unsupported provider.')
   }

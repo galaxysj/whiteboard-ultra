@@ -147,56 +147,6 @@ export const api = {
         body: JSON.stringify(payload),
       }),
     ),
-  askAgentStream: async (
-    payload: AgentAskRequest,
-    handlers: {
-      onThinkingStart?: () => void
-      onThoughtComplete?: (thoughtSeconds: number) => void
-      onTool?: (event: AgentToolEvent) => void
-      onChunk: (chunk: string) => void
-    },
-  ) => {
-    const response = await fetch('/api/agent/ask/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (!response.ok) {
-      throw new Error(await extractResponseError(response))
-    }
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('Streaming response is not available.')
-    }
-    const decoder = new TextDecoder()
-    let full = ''
-    let buffer = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed) continue
-        const event = JSON.parse(trimmed) as
-          | { type: 'thinking_start' }
-          | { type: 'thought_complete'; thoughtSeconds?: number }
-          | { type: 'tool'; event: AgentToolEvent }
-          | { type: 'token'; value: string }
-          | { type: 'done' }
-        if (event.type === 'thinking_start') handlers.onThinkingStart?.()
-        if (event.type === 'thought_complete') handlers.onThoughtComplete?.(event.thoughtSeconds ?? 0)
-        if (event.type === 'tool') handlers.onTool?.(event.event)
-        if (event.type === 'token') {
-          full += event.value
-          handlers.onChunk(event.value)
-        }
-      }
-    }
-    return { answer: full, toolEvents: [] } satisfies AgentAskResponse
-  },
   buildWithAgent: async (payload: AgentBuildRequest) =>
     asJson<AgentBuildResponse>(
       await fetch('/api/agent/build', {

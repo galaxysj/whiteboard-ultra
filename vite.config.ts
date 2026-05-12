@@ -5,11 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
-    port: 5173,
-    proxy: {
-      '/api': 'http://localhost:3001',
-      '/uploads': 'http://localhost:3001',
-    },
+    // When running through Express (middlewareMode), port/proxy are not used.
+    // If you run `vite` standalone, it will use its default port.
   },
   build: {
     outDir: 'dist/client',

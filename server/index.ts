@@ -5,6 +5,7 @@ import cors from 'cors'
 import express from 'express'
 import multer from 'multer'
 import { nanoid } from 'nanoid'
+import { createServer as createViteServer } from 'vite'
 import {
   runAskWithToolCalls,
   runBuildWithToolCalls,
@@ -36,7 +37,10 @@ const host = process.env.HOST || '0.0.0.0'
 const uploadsDir = getUploadsDir()
 const isProduction = process.env.NODE_ENV === 'production'
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
-const clientDistDir = path.resolve(currentDir, '../../client')
+const projectRootDir = path.resolve(currentDir, '..')
+
+// Build output (see vite.config.ts => build.outDir)
+const clientDistDir = path.resolve(projectRootDir, 'dist/client')
 const clientIndexPath = path.join(clientDistDir, 'index.html')
 
 app.use(cors())
@@ -236,6 +240,7 @@ app.post('/api/agent/ask', async (req, res) => {
       settings,
       board,
       payload.question,
+      payload.includeThoughts === true,
       payload.selectedElementId,
       payload.viewOrigin,
       payload.viewBounds,
@@ -249,45 +254,6 @@ app.post('/api/agent/ask', async (req, res) => {
   }
 })
 
-app.post('/api/agent/ask/stream', async (req, res) => {
-  try {
-    const payload = req.body as AgentAskRequest
-    const board = ensureBoard(payload.boardId)
-    const settings = getAISettings()
-    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
-    res.setHeader('Cache-Control', 'no-cache, no-transform')
-    res.setHeader('X-Accel-Buffering', 'no')
-    res.write(`${JSON.stringify({ type: 'thinking_start' })}\n`)
-    const result = await runAskWithToolCalls(
-      settings,
-      board,
-      payload.question,
-      payload.selectedElementId,
-      payload.viewOrigin,
-      payload.viewBounds,
-      payload.screenshotDataUrl,
-      Array.isArray(payload.history) ? payload.history : [],
-    )
-    res.write(`${JSON.stringify({ type: 'thought_complete', thoughtSeconds: result.thoughtSeconds ?? 0 })}\n`)
-    for (const event of result.toolEvents) {
-      res.write(`${JSON.stringify({ type: 'tool', event })}\n`)
-    }
-    const chunks = result.answer.match(/.{1,36}(\s|$)|\S+/g) ?? [result.answer]
-    for (const chunk of chunks) {
-      res.write(`${JSON.stringify({ type: 'token', value: chunk })}\n`)
-    }
-    res.write(`${JSON.stringify({ type: 'done' })}\n`)
-    res.end()
-  } catch (error) {
-    if (!res.headersSent) {
-      const failure = getErrorPayload(error, 'Ask stream failed.')
-      res.status(failure.status).json(failure.body)
-      return
-    }
-    res.end()
-  }
-})
-
 app.post('/api/agent/build', async (req, res) => {
   try {
     const payload = req.body as AgentBuildRequest
@@ -298,6 +264,7 @@ app.post('/api/agent/build', async (req, res) => {
       board,
       payload.prompt,
       payload.mode === 'insert' ? 'insert' : 'build',
+      payload.includeThoughts === true,
       payload.selectedElementId,
       payload.viewOrigin,
       payload.viewBounds,
@@ -316,28 +283,74 @@ app.post('/api/agent/build', async (req, res) => {
   }
 })
 
-if (isProduction && fs.existsSync(clientIndexPath)) {
-  app.use(express.static(clientDistDir))
-  app.get('/{*path}', (req, res, next) => {
+const start = async () => {
+  if (isProduction) {
+    if (fs.existsSync(clientIndexPath)) {
+      app.use(express.static(clientDistDir))
+      app.get('/{*path}', (req, res, next) => {
+        if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+          next()
+          return
+        }
+        res.sendFile(clientIndexPath)
+      })
+    }
+  } else {
+    const vite = await createViteServer({
+      root: projectRootDir,
+      server: { middlewareMode: true },
+      appType: 'spa',
+    })
+
+    // Serve Vite dev client on the same Express server/port.
+    // IMPORTANT: never let Vite handle /api or /uploads paths.
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+        next()
+        return
+      }
+      ;(vite.middlewares as unknown as express.RequestHandler)(req, res, next)
+    })
+
+    // Ensure SPA fallback returns index.html (and applies Vite HTML transforms).
+    app.get('/{*path}', async (req, res, next) => {
+      try {
+        if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+          next()
+          return
+        }
+
+        const url = req.originalUrl
+        const indexHtmlPath = path.resolve(projectRootDir, 'index.html')
+        const template = await fs.promises.readFile(indexHtmlPath, 'utf-8')
+        const html = await vite.transformIndexHtml(url, template)
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(html)
+      } catch (error) {
+        vite.ssrFixStacktrace(error as Error)
+        next(error)
+      }
+    })
+  }
+
+  // Keep JSON 404s for API-like paths only.
+  app.use((req, res, next) => {
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
-      next()
+      res.status(404).json({ error: 'Not found.' })
       return
     }
-    res.sendFile(clientIndexPath)
+    next()
   })
+
+  const server = app.listen(port, host, () => {
+    fs.mkdirSync(uploadsDir, { recursive: true })
+    console.log(`Whiteboard Ultra running on http://${host}:${port}`)
+  })
+
+  server.on('close', () => {
+    console.log('Whiteboard Ultra server closed')
+  })
+
+    ; (globalThis as typeof globalThis & { __whiteboardServer?: typeof server }).__whiteboardServer = server
 }
 
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Not found.' })
-})
-
-const server = app.listen(port, host, () => {
-  fs.mkdirSync(uploadsDir, { recursive: true })
-  console.log(`Whiteboard Ultra running on http://${host}:${port}`)
-})
-
-server.on('close', () => {
-  console.log('Whiteboard Ultra server closed')
-})
-
-  ; (globalThis as typeof globalThis & { __whiteboardServer?: typeof server }).__whiteboardServer = server
+void start()

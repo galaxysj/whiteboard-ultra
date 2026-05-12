@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentType, CSSProperties } from 'react'
 import Editor from '@monaco-editor/react'
 import getStroke from 'perfect-freehand'
 import PlotlyFactoryModule from 'react-plotly.js/factory'
 import PlotlyModule from 'plotly.js-dist-min'
 import type { Data as PlotlyData, Layout as PlotlyLayout } from 'plotly.js'
+import html2canvas from 'html2canvas'
 import agentCursorSvg from './assets/cursor.svg'
 import { DraftingCompass } from "lucide-react";
 import {
@@ -15,6 +16,7 @@ import {
 
   Check,
   ChevronDown,
+  ChevronUp,
   ChevronLeft,
   Circle,
   CircleX,
@@ -35,6 +37,7 @@ import {
   MousePointer2,
   Pen,
   PenTool,
+  Pentagon,
   RectangleHorizontal,
   Ruler,
   Save,
@@ -136,7 +139,6 @@ type ModelPreset = {
   name: string
   modelId: string
   providerId: string
-  stream: boolean
   reasoning: boolean
   contextSize: string
 }
@@ -244,7 +246,7 @@ const TOOL_DEFS: Array<{ id: CanvasToolId; label: string; category: ToolCategory
   { id: 'pen', label: 'Pen', category: 'general', icon: PenTool },
   { id: 'dot', label: 'Dot', category: 'general', icon: Dot },
   { id: 'eraser-stroke', label: 'Eraser', category: 'general', icon: Eraser },
-  { id: 'polygon', label: 'Polygon', category: 'general', icon: SquarePlus },
+  { id: 'polygon', label: 'Polygon', category: 'general', icon: Pentagon },
   { id: 'line', label: 'Line', category: 'general', icon: Minus },
   { id: 'arrow', label: 'Arrow', category: 'general', icon: ArrowRight },
   { id: 'rectangle', label: 'Rectangle', category: 'general', icon: RectangleHorizontal },
@@ -855,7 +857,6 @@ const parseModelPresets = (raw: string | null) => {
       )
       .map((item) => ({
         ...item,
-        stream: typeof item?.stream === 'boolean' ? item.stream : false,
         contextSize:
           typeof item?.contextSize === 'string'
             ? item.contextSize.replace(/\D/g, '')
@@ -1814,6 +1815,8 @@ export function WhiteboardPage() {
   const pointerScreenRef = useRef<Point | null>(null)
   const editingTextIdRef = useRef<string | null>(null)
   const copiedElementsRef = useRef<BoardElement[]>([])
+  const historyRef = useRef<BoardElement[][]>([])
+  const futureRef = useRef<BoardElement[][]>([])
 
   const [boards, setBoards] = useState<Board[]>([])
   const [activeBoardId, setActiveBoardId] = useState('')
@@ -1861,6 +1864,23 @@ export function WhiteboardPage() {
   const [shapeStrokeWidth, setShapeStrokeWidth] = useState(DEFAULT_SHAPE_STROKE_WIDTH)
   const [shapeFilled, setShapeFilled] = useState(DEFAULT_SHAPE_FILLED)
   const [eraserRadius, setEraserRadius] = useState(DEFAULT_ERASER_RADIUS)
+
+  const captureBoardScreenshotDataUrl = useCallback(async () => {
+    const root = canvasRef.current
+    if (!root) return undefined
+    try {
+      const canvas = await html2canvas(root, {
+        backgroundColor: '#ffffff',
+        scale: 1,
+        useCORS: true,
+        logging: false,
+      })
+      // JPEG keeps payload smaller than PNG for screenshots.
+      return canvas.toDataURL('image/jpeg', 0.85)
+    } catch {
+      return undefined
+    }
+  }, [])
   const [eraserPenOnly, setEraserPenOnly] = useState(false)
   const [eraserPointer, setEraserPointer] = useState<Point | null>(null)
   const [pointerWorld, setPointerWorld] = useState<Point | null>(null)
@@ -1917,10 +1937,42 @@ export function WhiteboardPage() {
     elementsRef.current = nextElements
     setElements(nextElements)
     if (pushHistory) {
-      setHistory((prev) => [...prev.slice(-60), previousElements])
+      const nextHistory = [...historyRef.current.slice(-59), previousElements]
+      historyRef.current = nextHistory
+      futureRef.current = []
+      setHistory(nextHistory)
       setFuture([])
     }
   }
+
+  const undo = useCallback(() => {
+    const currentHistory = historyRef.current
+    if (currentHistory.length === 0) return
+    const prev = currentHistory[currentHistory.length - 1]
+    const nextHistory = currentHistory.slice(0, -1)
+    const nextFuture = [elementsRef.current, ...futureRef.current].slice(0, 60)
+    historyRef.current = nextHistory
+    futureRef.current = nextFuture
+    setHistory(nextHistory)
+    setFuture(nextFuture)
+    setElements(prev)
+    elementsRef.current = prev
+    setSelectedElementId(null)
+  }, [])
+
+  const redo = useCallback(() => {
+    const currentFuture = futureRef.current
+    if (currentFuture.length === 0) return
+    const [next, ...rest] = currentFuture
+    const nextHistory = [...historyRef.current, elementsRef.current].slice(-60)
+    historyRef.current = nextHistory
+    futureRef.current = rest
+    setHistory(nextHistory)
+    setFuture(rest)
+    setElements(next)
+    elementsRef.current = next
+    setSelectedElementId(null)
+  }, [])
 
   const commitPolygonDraft = (points: Point[]) => {
     if (points.length < 3) {
@@ -2143,7 +2195,6 @@ export function WhiteboardPage() {
                   name: settings.modelName || settings.modelId,
                   modelId: settings.modelId,
                   providerId: nextProviderId,
-                  stream: true,
                   reasoning: false,
                   contextSize: '128000',
                 },
@@ -2207,6 +2258,14 @@ export function WhiteboardPage() {
   useEffect(() => {
     elementsRef.current = elements
   }, [elements])
+
+  useEffect(() => {
+    historyRef.current = history
+  }, [history])
+
+  useEffect(() => {
+    futureRef.current = future
+  }, [future])
 
   useEffect(() => {
     selectedElementIdsRef.current = selectedElementIds
@@ -2401,7 +2460,7 @@ export function WhiteboardPage() {
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [inlineAgent, viewport.x, viewport.y, viewport.zoom])
+  }, [inlineAgent, viewport.x, viewport.y, viewport.zoom, undo, redo])
 
   useEffect(() => {
     const clampCurrentViewport = () => {
@@ -2426,10 +2485,14 @@ export function WhiteboardPage() {
   const eventToWorldPoints = (event: React.PointerEvent<HTMLDivElement>) => {
     const native = event.nativeEvent
     const coalesced = typeof native.getCoalescedEvents === 'function' ? native.getCoalescedEvents() : []
-    if (coalesced.length > 0) {
-      return coalesced.map((sample) => screenToWorld(sample.clientX, sample.clientY))
+    const samples = coalesced.length > 0 ? coalesced : [native]
+    const points = samples.map((sample) => screenToWorld(sample.clientX, sample.clientY))
+    const currentPoint = screenToWorld(event.clientX, event.clientY)
+    const lastPoint = points[points.length - 1]
+    if (!lastPoint || distance(lastPoint, currentPoint) > 0) {
+      points.push(currentPoint)
     }
-    return [screenToWorld(event.clientX, event.clientY)]
+    return points
   }
 
   const topElementAt = (point: Point) =>
@@ -3096,6 +3159,15 @@ export function WhiteboardPage() {
   }
 
   const onPointerLeave = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+      onPointerUp(event)
+    }
+    pointerScreenRef.current = null
+    setPointerWorld(null)
+    setEraserPointer(null)
+  }
+
+  const onPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
     onPointerUp(event)
     pointerScreenRef.current = null
     setPointerWorld(null)
@@ -3119,23 +3191,6 @@ export function WhiteboardPage() {
     })
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
     if (event.ctrlKey || event.metaKey) { event.preventDefault(); zoomBy(event.deltaY > 0 ? 0.95 : 1.05) }
-  }
-
-  const undo = () => {
-    if (history.length === 0) return
-    const prev = history[history.length - 1]
-    setHistory((items) => items.slice(0, -1))
-    setFuture((items) => [elements, ...items].slice(0, 60))
-    setElements(prev)
-    setSelectedElementId(null)
-  }
-  const redo = () => {
-    if (future.length === 0) return
-    const [next, ...rest] = future
-    setHistory((items) => [...items, elements].slice(-60))
-    setFuture(rest)
-    setElements(next)
-    setSelectedElementId(null)
   }
 
   const createBoardAction = async () => {
@@ -3324,10 +3379,24 @@ export function WhiteboardPage() {
     const dx = direction === 'left' ? -stepDistance : direction === 'right' ? stepDistance : 0
     const dy = direction === 'up' ? -stepDistance : direction === 'down' ? stepDistance : 0
     const selectedIds = new Set(selectedElements.map((element) => element.id))
-    const next = elementsRef.current.map((element) =>
-      selectedIds.has(element.id) ? translateElement(element, dx, dy) : element,
-    )
-    commitElements(next)
+    const originals = elementsRef.current.filter((element) => selectedIds.has(element.id))
+    if (originals.length === 0) return
+    const now = new Date().toISOString()
+    let z = getNextZIndex(elementsRef.current)
+    const clones = originals.map((element) => {
+      const cloned = cloneElementDeep(element)
+      const moved = translateElement(cloned, dx, dy)
+      z += 1
+      return {
+        ...moved,
+        id: createLocalId(element.type),
+        zIndex: z,
+        createdAt: now,
+        updatedAt: now,
+      } satisfies BoardElement
+    })
+    commitElements([...elementsRef.current, ...clones])
+    setSelectedElementIds(clones.map((element) => element.id))
   }
   const handleRotateSelectRotate = (degrees: 0 | 90 | 180 | 270 | 360) => {
     if (!selectedElementsBounds || selectedElements.length === 0) return
@@ -3470,7 +3539,6 @@ export function WhiteboardPage() {
         name: 'New Model',
         modelId: '',
         providerId: providerPresets[0]?.id || '',
-        stream: true,
         reasoning: true,
         contextSize: '128000',
       },
@@ -3546,13 +3614,14 @@ export function WhiteboardPage() {
     appendToChat = true,
   ) => {
     if (!isCurrentChatSession(sessionId)) return
-    if (appendToChat) {
-      appendToolMessage(event)
-    }
+    // Serialize tool events so they appear progressively (not all at once).
     toolEventChainRef.current = toolEventChainRef.current
-      .then(() => {
+      .then(async () => {
         if (!isCurrentChatSession(sessionId)) return
-        return applyToolAction(event.action)
+        if (appendToChat) {
+          appendToolMessage(event)
+        }
+        await applyToolAction(event.action)
       })
       .catch(() => undefined)
   }
@@ -3563,9 +3632,10 @@ export function WhiteboardPage() {
     appendToChat = true,
   ) => {
     for (const event of events) {
+      // Chain each event, and await so the UI updates in between (progressively).
       queueToolEvent(event, sessionId, appendToChat)
+      await toolEventChainRef.current
     }
-    await toolEventChainRef.current
   }
 
   const buildConversationHistory = (contextSize: number, nextUserPrompt: string, customMessages?: ChatMessage[]): AgentConversationMessage[] => {
@@ -3658,6 +3728,7 @@ export function WhiteboardPage() {
         boardId: activeBoardId,
         prompt: inlinePrompt,
         mode: 'insert',
+        includeThoughts: selectedChatModel?.reasoning ?? false,
         selectedElementId: selectedElementId ?? undefined,
         viewOrigin: { x: viewport.x, y: viewport.y },
         viewBounds: visibleWorldRect,
@@ -3747,7 +3818,6 @@ export function WhiteboardPage() {
         if (!isCurrentChatSession(sessionId)) return
       }
       if (agentMode === 'chat') {
-        if (selectedChatModel?.stream) {
           setChatMessages((prev) => [
             ...prev,
             {
@@ -3761,131 +3831,18 @@ export function WhiteboardPage() {
           ])
           setThinkingStartTime(Date.now())
           setThinkingDurationSeconds(0)
-          let assistantCreated = false
-          let rawStreamed = ''
-          let streamedThought = ''
-          let streamedContent = ''
-          const result = await api.askAgentStream(
-            {
-              boardId: activeBoardId,
-              question: prompt,
-              selectedElementId: selectedElementId ?? undefined,
-              viewOrigin: { x: viewport.x, y: viewport.y },
-              viewBounds: visibleWorldRect,
-              screenshotDataUrl: undefined,
-              history: conversationHistory,
-            },
-            {
-              onTool: (event) => {
-                if (!isCurrentChatSession(sessionId)) return
-                queueToolEvent(event, sessionId)
-              },
-              onThoughtComplete: (thoughtSeconds) => {
-                if (!isCurrentChatSession(sessionId)) return
-                setThinkingStartTime(null)
-                setChatMessages((prev) =>
-                  prev.map((message) =>
-                    message.id === thoughtMessageId
-                      ? { ...message, content: `Thought for ${Math.round(thoughtSeconds)}s`, status: 'done' }
-                      : message,
-                  ),
-                )
-              },
-              onChunk: (chunk) => {
-                if (!chunk) return
-                if (!isCurrentChatSession(sessionId)) return
 
-                rawStreamed += chunk
-
-                const thinkStart = rawStreamed.indexOf('<think>')
-                if (thinkStart !== -1) {
-                  const thinkEnd = rawStreamed.indexOf('</think>')
-                  if (thinkEnd !== -1) {
-                    streamedThought = rawStreamed.substring(thinkStart + 7, thinkEnd).trim()
-                    streamedContent = rawStreamed.substring(0, thinkStart) + rawStreamed.substring(thinkEnd + 9)
-                  } else {
-                    streamedThought = rawStreamed.substring(thinkStart + 7).trim()
-                    streamedContent = rawStreamed.substring(0, thinkStart)
-                  }
-                } else {
-                  streamedContent = rawStreamed
-                }
-
-                setChatMessages((prev) => {
-                  let updated = [...prev]
-                  if (streamedThought) {
-                    updated = updated.map((m) =>
-                      m.id === thoughtMessageId ? { ...m, detail: streamedThought } : m
-                    )
-                  }
-
-                  const existing = updated.find((m) => m.id === assistantMessageId)
-                  if (!existing && streamedContent.length > 0) {
-                    assistantCreated = true
-                    updated.push({
-                      id: assistantMessageId,
-                      role: 'assistant',
-                      content: streamedContent,
-                      createdAt: new Date().toISOString(),
-                      order: nextChatOrder(),
-                      status: 'done',
-                    })
-                  } else if (existing) {
-                    updated = updated.map((message) =>
-                      message.id === assistantMessageId
-                        ? { ...message, content: streamedContent }
-                        : message,
-                    )
-                  }
-                  return updated
-                })
-              },
-            },
-          )
-          if (!isCurrentChatSession(sessionId)) return
-          if (!result.answer.trim()) {
-            setChatMessages((prev) =>
-              assistantCreated
-                ? prev.map((message) =>
-                  message.id === assistantMessageId
-                    ? { ...message, content: 'AI provider returned an empty response.', status: 'done' }
-                    : message,
-                )
-                : [
-                  ...prev,
-                  {
-                    id: assistantMessageId,
-                    role: 'assistant',
-                    content: 'AI provider returned an empty response.',
-                    createdAt: new Date().toISOString(),
-                    order: nextChatOrder(),
-                    status: 'done',
-                  },
-                ],
-            )
-          }
-        } else {
-          setChatMessages((prev) => [
-            ...prev,
-            {
-              id: thoughtMessageId,
-              role: 'thought',
-              content: '',
-              createdAt: new Date().toISOString(),
-              order: nextChatOrder(),
-              status: 'thinking',
-            },
-          ])
-          setThinkingStartTime(Date.now())
-          setThinkingDurationSeconds(0)
+          // Capture a board screenshot opportunistically so the agent can use vision tools.
+          const screenshotDataUrl = await captureBoardScreenshotDataUrl()
 
           const result = await api.askAgent({
             boardId: activeBoardId,
             question: prompt,
+            includeThoughts: selectedChatModel?.reasoning ?? false,
             selectedElementId: selectedElementId ?? undefined,
             viewOrigin: { x: viewport.x, y: viewport.y },
             viewBounds: visibleWorldRect,
-            screenshotDataUrl: undefined,
+            screenshotDataUrl,
             history: conversationHistory,
           })
 
@@ -3897,6 +3854,7 @@ export function WhiteboardPage() {
                 ? {
                   ...message,
                   content: `Thought for ${Math.round(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000))}s`,
+                  detail: result.thought || message.detail,
                   status: 'done',
                 }
                 : message,
@@ -3915,7 +3873,6 @@ export function WhiteboardPage() {
               status: 'done',
             },
           ])
-        }
       } else {
         setChatMessages((prev) => [
           ...prev,
@@ -3931,13 +3888,17 @@ export function WhiteboardPage() {
         setThinkingStartTime(Date.now())
         setThinkingDurationSeconds(0)
 
+        // Capture a board screenshot opportunistically so the agent can use vision tools.
+        const screenshotDataUrl = await captureBoardScreenshotDataUrl()
+
         const result: AgentBuildResponse = await api.buildWithAgent({
           boardId: activeBoardId,
           prompt,
+          includeThoughts: selectedChatModel?.reasoning ?? false,
           selectedElementId: selectedElementId ?? undefined,
           viewOrigin: { x: viewport.x, y: viewport.y },
           viewBounds: visibleWorldRect,
-          screenshotDataUrl: undefined,
+          screenshotDataUrl,
           history: conversationHistory,
         })
 
@@ -3960,6 +3921,7 @@ export function WhiteboardPage() {
               ? {
                 ...message,
                 content: `Thought for ${Math.round(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000))}s`,
+                  detail: result.thought || message.detail,
                 status: 'done',
               }
               : message,
@@ -4243,18 +4205,6 @@ export function WhiteboardPage() {
         }
         ctx.lineTo(draft.preview.x, draft.preview.y)
         ctx.stroke()
-
-        // If >= 3 vertices, show filled preview (closing to first point)
-        if (points.length >= 3) {
-          ctx.beginPath()
-          ctx.moveTo(points[0].x, points[0].y)
-          for (let i = 1; i < points.length; i += 1) {
-            ctx.lineTo(points[i].x, points[i].y)
-          }
-          ctx.closePath()
-          if (shapeFilled) ctx.fill('evenodd')
-          ctx.stroke()
-        }
 
         // Draw vertex handles
         ctx.fillStyle = '#ffffff'
@@ -4743,6 +4693,7 @@ export function WhiteboardPage() {
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerLeave={onPointerLeave}
+            onPointerCancel={onPointerCancel}
             onDoubleClick={onDoubleClick}
             onWheel={onWheel}
             onContextMenu={(event) => event.preventDefault()}
@@ -5945,8 +5896,10 @@ export function WhiteboardPage() {
                                 <button
                                   className="chat-toggle-thought-btn"
                                   onClick={() => toggleThought(message.id)}
+                                  aria-label={expandedThoughts[message.id] ? t('Close') : t('Open')}
+                                  title={expandedThoughts[message.id] ? t('Close') : t('Open')}
                                 >
-                                  {expandedThoughts[message.id] ? t('Close') : t('Open')}
+                                  {expandedThoughts[message.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                 </button>
                               )}
                             </span>
@@ -5965,8 +5918,10 @@ export function WhiteboardPage() {
                                 <button
                                   className="chat-toggle-thought-btn"
                                   onClick={() => toggleThought(message.id)}
+                                  aria-label={expandedThoughts[message.id] ? t('Close') : t('Open')}
+                                  title={expandedThoughts[message.id] ? t('Close') : t('Open')}
                                 >
-                                  {expandedThoughts[message.id] ? t('Close') : t('Open')}
+                                  {expandedThoughts[message.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                 </button>
                               )}
                             </span>
@@ -6232,18 +6187,6 @@ export function WhiteboardPage() {
                           }
                           placeholder={t('Context size')}
                         />
-                        <label className="ai-model-stream-toggle" title={t('Enable real-time streaming')}>
-                          <input
-                            type="checkbox"
-                            checked={model.stream}
-                            onChange={(event) =>
-                              setModelPresets((prev) =>
-                                prev.map((item) => (item.id === model.id ? { ...item, stream: event.target.checked } : item)),
-                              )
-                            }
-                          />
-                          <span>{t('Stream')}</span>
-                        </label>
                         <label className="ai-model-stream-toggle" title={t('Show reasoning/thoughts if supported')}>
                           <input
                             type="checkbox"

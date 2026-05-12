@@ -192,6 +192,7 @@ export interface AIProviderSettings {
 export interface AgentAskRequest {
   boardId: string
   question: string
+  includeThoughts?: boolean
   selectedElementId?: string
   viewOrigin?: Point
   viewBounds?: Rect
@@ -232,6 +233,7 @@ export interface AgentConversationMessage {
 export interface AgentAskResponse {
   answer: string
   toolEvents: AgentToolEvent[]
+  thought?: string
   thoughtSeconds?: number
 }
 
@@ -260,6 +262,7 @@ export interface AgentBuildRequest {
   boardId: string
   prompt: string
   mode?: 'build' | 'insert'
+  includeThoughts?: boolean
   selectedElementId?: string
   viewOrigin?: Point
   viewBounds?: Rect

@@ -4,9 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-
     "start": "cross-env NODE_ENV=production node dist/server/server/index.js",
-    "dev": "concurrently \"tsx watch server/index.ts\" \"vite\"",
+    "dev": "cross-env NODE_ENV=development tsx watch server/index.ts",
     "build": "npm run build:server && npm run build:client",
     "build:client": "tsc -b tsconfig.json && vite build",
     "build:server": "tsc -p tsconfig.server.json",
@@ -22,6 +21,7 @@
     "express": "^5.1.0",
     "fit-curve": "^0.2.0",
     "highlight.js": "^11.11.1",
+    "html2canvas": "^1.4.1",
     "katex": "^0.16.25",
     "lucide-react": "^0.577.0",
     "marked": "^17.0.5",
