@@ -1,7 +1,7 @@
 export const CANVAS_WIDTH = 32000
 export const CANVAS_HEIGHT = 32000
 
-export type ToolCategory = 'general' | 'file' | 'text' | 'math'
+export type ToolCategory = 'general' | 'file' | 'text' | 'math' | 'move'
 
 export type ToolId =
   | 'select'

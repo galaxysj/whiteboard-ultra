@@ -457,6 +457,13 @@ h3 {
   pointer-events: none;
 }
 
+.rotate-select-floating-actions {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+}
+
 .move-select-floating-action {
   position: absolute;
   width: 36px;
@@ -466,6 +473,20 @@ h3 {
   border: 1px solid rgba(219, 226, 234, 0.95);
   box-shadow: var(--shadow);
   pointer-events: auto;
+}
+
+.rotate-select-floating-action {
+  position: absolute;
+  min-width: 42px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(219, 226, 234, 0.95);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .tool-popup button[data-tooltip]:hover::after {

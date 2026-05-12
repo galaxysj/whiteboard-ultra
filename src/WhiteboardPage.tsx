@@ -47,10 +47,12 @@ import {
   Type,
   Trash2,
   RotateCcw,
+  RotateCw,
   Copy,
   Redo,
   ZoomIn,
   ZoomOut,
+  FlipHorizontal2,
   FlipHorizontal,
   FlipVertical,
 } from 'lucide-react'
@@ -143,7 +145,10 @@ type DropdownOption = {
   label: string
 }
 type AppLanguage = 'en' | 'ko' | 'zh' | 'ja'
-type CanvasToolId = ToolId | 'drag-select' | 'move-select' | 'eraser-stroke' | 'dot' | 'calculator'
+type CanvasToolId = ToolId | 'drag-select' | 'move-select' | 'push-select' | 'rotate-select' | 'eraser-stroke' | 'dot' | 'calculator'
+const MOVE_SELECT_TOOL_ID: CanvasToolId = 'move-select'
+const PUSH_SELECT_TOOL_ID: CanvasToolId = 'push-select'
+const ROTATE_SELECT_TOOL_ID: CanvasToolId = 'rotate-select'
 type DraftState =
   | { type: 'shape'; tool: 'line' | 'arrow' | 'rectangle' | 'ellipse'; start: Point; end: Point }
   | { type: 'pen'; rawPoints: Point[]; points: Point[] }
@@ -259,7 +264,9 @@ const TOOL_DEFS: Array<{ id: CanvasToolId; label: string; category: ToolCategory
   { id: 'latex', label: 'LaTeX', category: 'math', icon: Scan },
   { id: 'ruler', label: 'Ruler', category: 'math', icon: Ruler },
   { id: 'protractor', label: 'Protractor', category: 'math', icon: Gauge },
-  { id: 'move-select', label: 'Move Select', category: 'math', icon: SquareMousePointer },
+  { id: MOVE_SELECT_TOOL_ID, label: 'Flip Select', category: 'move', icon: FlipHorizontal2 },
+  { id: PUSH_SELECT_TOOL_ID, label: 'Move Select', category: 'move', icon: ArrowRight },
+  { id: ROTATE_SELECT_TOOL_ID, label: 'Rotate Select', category: 'move', icon: RotateCcw },
 ]
 const CATEGORY_TOOL_DEFS = TOOL_DEFS.filter((item) => item.id !== 'select')
 const FIXED_TOOL_DEFS: Array<{ id: Extract<CanvasToolId, 'select' | 'drag-select'>; label: string; icon: typeof MousePointer2 }> = [
@@ -271,6 +278,7 @@ const CATEGORY_DEFS: Array<{ id: ToolCategory; label: string; icon: typeof Mouse
   { id: 'file', label: 'Embed tools', icon: File },
   { id: 'text', label: 'Text tools', icon: Type },
   { id: 'math', label: 'Math tools', icon: Calculator },
+  { id: 'move', label: 'Move tools', icon: FlipHorizontal2 },
 ]
 
 const defaultAISettings: AIProviderSettings = {
@@ -435,9 +443,19 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Embed tools': '임베드 도구',
     'Text tools': '텍스트 도구',
     'Math tools': '수학 도구',
-    'Move Select': '이동 선택',
+    'Move tools': '이동 도구',
+    'Flip Select': '뒤집기 선택',
+    'Rotate Select': '회전 선택',
+    Clockwise: '시계 방향',
+    'Counterclockwise': '반시계 방향',
     'Flip left': '왼쪽으로 뒤집기',
     'Flip right': '오른쪽으로 뒤집기',
+    'Move Select': '밀기 선택',
+    'Move grid count': '이동 모눈 수',
+    'Move left': '왼쪽으로 밀기',
+    'Move right': '오른쪽으로 밀기',
+    'Move up': '위로 밀기',
+    'Move down': '아래로 밀기',
     'Flip up': '위로 뒤집기',
     'Flip down': '아래로 뒤집기',
   },
@@ -582,9 +600,19 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Embed tools': '嵌入工具',
     'Text tools': '文本工具',
     'Math tools': '数学工具',
-    'Move Select': '移动选择',
+    'Move tools': '移动工具',
+    'Flip Select': '翻转选择',
+    'Rotate Select': '旋转选择',
+    Clockwise: '顺时针',
+    'Counterclockwise': '逆时针',
     'Flip left': '向左翻转',
     'Flip right': '向右翻转',
+    'Move Select': '推动选择',
+    'Move grid count': '移动网格数',
+    'Move left': '向左推动',
+    'Move right': '向右推动',
+    'Move up': '向上推动',
+    'Move down': '向下推动',
     'Flip up': '向上翻转',
     'Flip down': '向下翻转',
   },
@@ -729,9 +757,19 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Embed tools': '埋め込みツール',
     'Text tools': 'テキストツール',
     'Math tools': '数学ツール',
-    'Move Select': '移動選択',
+    'Move tools': '移動ツール',
+    'Flip Select': '反転選択',
+    'Rotate Select': '回転選択',
+    Clockwise: '時計回り',
+    'Counterclockwise': '反時計回り',
     'Flip left': '左に反転',
     'Flip right': '右に反転',
+    'Move Select': '移動選択',
+    'Move grid count': '移動グリッド数',
+    'Move left': '左へ移動',
+    'Move right': '右へ移動',
+    'Move up': '上へ移動',
+    'Move down': '下へ移動',
     'Flip up': '上に反転',
     'Flip down': '下に反転',
   },
@@ -1113,6 +1151,15 @@ const strokePolygonToPath = (polygon: number[][]) => {
     const midX = (current[0] + next[0]) / 2
     const midY = (current[1] + next[1]) / 2
     segments.push(`Q ${current[0]} ${current[1]} ${midX} ${midY}`)
+  }
+  segments.push('Z')
+  return segments.join(' ')
+}
+const polygonPointsToPath = (points: Point[]) => {
+  if (points.length === 0) return ''
+  const segments = [`M ${points[0].x} ${points[0].y}`]
+  for (let index = 1; index < points.length; index += 1) {
+    segments.push(`L ${points[index].x} ${points[index].y}`)
   }
   segments.push('Z')
   return segments.join(' ')
@@ -1776,6 +1823,8 @@ export function WhiteboardPage() {
   const selectedElementId = selectedElementIds.length > 0 ? selectedElementIds[0] : null
   const setSelectedElementId = (id: string | null) => setSelectedElementIds(id ? [id] : [])
   const [tool, setTool] = useState<CanvasToolId>('select')
+  const [pushSelectGridCount, setPushSelectGridCount] = useState(1)
+  const [rotateSelectClockwise, setRotateSelectClockwise] = useState(true)
   const [viewport, setViewport] = useState<Viewport>(boardCenter)
   const [draft, setDraft] = useState<DraftState>(null)
   const [drag, setDrag] = useState<DragState>(null)
@@ -2385,7 +2434,8 @@ export function WhiteboardPage() {
 
   const topElementAt = (point: Point) =>
     sortByZ(elements).find((element) => isSelectableElement(element) && elementBoundsHit(element, point))
-  const isSelectionTool = tool === 'select' || tool === 'drag-select' || tool === 'move-select'
+  const isSelectionTool =
+    tool === 'select' || tool === 'drag-select' || tool === MOVE_SELECT_TOOL_ID || tool === PUSH_SELECT_TOOL_ID || tool === ROTATE_SELECT_TOOL_ID
   const eraseAtPoints = (source: BoardElement[], points: Point[]) => {
     if (points.length === 0) return source
     const next = source.filter(
@@ -2444,7 +2494,7 @@ export function WhiteboardPage() {
       if (!hit) {
         setSelectedElementIds([])
         const nextDrag: DragState =
-          tool === 'drag-select' || tool === 'move-select'
+          tool === 'drag-select' || tool === 'move-select' || tool === 'push-select' || tool === 'rotate-select'
             ? { kind: 'selection-box', start: point, end: point }
             : { kind: 'canvas', start: { x: event.clientX, y: event.clientY }, origin: { x: viewport.x, y: viewport.y } }
         dragRef.current = nextDrag
@@ -3250,7 +3300,7 @@ export function WhiteboardPage() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }))
-      const offsetGap = Math.max(20, 18 / Math.max(0.1, viewport.zoom))
+      const offsetGap = GRID_STEP * 2
       const dx = axis === 'horizontal' ? direction * (selectedElementsBounds.width + offsetGap) : 0
       const dy = axis === 'vertical' ? direction * (selectedElementsBounds.height + offsetGap) : 0
       const nextClones = clones.map((element) => {
@@ -3264,8 +3314,60 @@ export function WhiteboardPage() {
       })
       const next = [...nextClones, ...prev].map((element, index) => ({ ...element, zIndex: index + 1 }))
       elementsRef.current = next
-      setSelectedElementIds([...selectedIds])
+      setSelectedElementIds(nextClones.map((element) => element.id))
       return next
+    })
+  }
+  const handlePushSelectMove = (direction: 'left' | 'right' | 'up' | 'down') => {
+    if (selectedElements.length === 0) return
+    const stepDistance = GRID_STEP * Math.max(1, pushSelectGridCount)
+    const dx = direction === 'left' ? -stepDistance : direction === 'right' ? stepDistance : 0
+    const dy = direction === 'up' ? -stepDistance : direction === 'down' ? stepDistance : 0
+    const selectedIds = new Set(selectedElements.map((element) => element.id))
+    const next = elementsRef.current.map((element) =>
+      selectedIds.has(element.id) ? translateElement(element, dx, dy) : element,
+    )
+    commitElements(next)
+  }
+  const handleRotateSelectRotate = (degrees: 0 | 90 | 180 | 270 | 360) => {
+    if (!selectedElementsBounds || selectedElements.length === 0) return
+    setElements((prev) => {
+      const selectedIds = new Set(selectedElements.map((element) => element.id))
+      const originals = prev.filter((element) => selectedIds.has(element.id))
+      if (originals.length === 0) return prev
+      const now = new Date().toISOString()
+      const offsetGap = GRID_STEP * 2
+      const appliedDegrees = rotateSelectClockwise
+        ? degrees
+        : degrees === 360
+          ? 360
+          : ((360 - degrees) % 360) as 90 | 180 | 270
+      const rotatedCopies = originals.map((element) => ({
+        ...cloneElementDeep(element),
+        id: createLocalId(element.type),
+        createdAt: now,
+        updatedAt: now,
+        rotation: normalizeAngle(element.rotation + appliedDegrees),
+      }))
+      const rotatedBounds = getSelectionBounds(rotatedCopies)
+      if (!rotatedBounds) return prev
+      const dx =
+        degrees === 90
+          ? selectedElementsBounds.x + selectedElementsBounds.width + offsetGap - rotatedBounds.x
+          : degrees === 270
+            ? selectedElementsBounds.x - offsetGap - (rotatedBounds.x + rotatedBounds.width)
+            : 0
+      const dy =
+        degrees === 180
+          ? selectedElementsBounds.y + selectedElementsBounds.height + offsetGap - rotatedBounds.y
+          : degrees === 360
+            ? selectedElementsBounds.y - offsetGap - (rotatedBounds.y + rotatedBounds.height)
+            : 0
+      const duplicates = rotatedCopies.map((element) => translateElement(element, dx, dy))
+      const rotated = [...duplicates, ...prev].map((element, index) => ({ ...element, zIndex: index + 1 }))
+      elementsRef.current = rotated
+      setSelectedElementIds([...selectedIds])
+      return rotated
     })
   }
   const toggleToolCategory = (category: ToolCategory) => {
@@ -4150,7 +4252,7 @@ export function WhiteboardPage() {
             ctx.lineTo(points[i].x, points[i].y)
           }
           ctx.closePath()
-          if (shapeFilled) ctx.fill()
+          if (shapeFilled) ctx.fill('evenodd')
           ctx.stroke()
         }
 
@@ -4304,6 +4406,40 @@ export function WhiteboardPage() {
                 <ZoomOut size={14} />
               </button>
             </div>
+            {tool === ROTATE_SELECT_TOOL_ID ? (
+              <div
+                className="toolbar-tooltip"
+                onMouseEnter={(event) =>
+                  showToolbarTooltip(
+                    event.currentTarget,
+                    rotateSelectClockwise ? t('Clockwise') : t('Counterclockwise'),
+                  )}
+                onMouseLeave={hideToolbarTooltip}
+                onFocus={(event) =>
+                  showToolbarTooltip(
+                    event.currentTarget,
+                    rotateSelectClockwise ? t('Clockwise') : t('Counterclockwise'),
+                  )}
+                onBlur={hideToolbarTooltip}
+              >
+                <button onClick={() => setRotateSelectClockwise((value) => !value)}>
+                  {rotateSelectClockwise ? <RotateCw size={14} /> : <RotateCcw size={14} />}
+                </button>
+              </div>
+            ) : null}
+            {tool === PUSH_SELECT_TOOL_ID ? (
+              <label className="toolbar-select" title={t('Move grid count')}>
+                <ArrowRight size={13} />
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={pushSelectGridCount}
+                  onChange={(event) => setPushSelectGridCount(Math.max(1, Number(event.target.value) || 1))}
+                  aria-label={t('Move grid count')}
+                />
+              </label>
+            ) : null}
 
             {tool === 'code' || tool === 'monaco' || selectedCodeElement || selectedMonacoElement ? (
               <label className="toolbar-select" title={t('Editor language')}>
@@ -4739,6 +4875,128 @@ export function WhiteboardPage() {
                 ))}
               </div>
             ) : null}
+            {tool === 'push-select' && selectedElementsBounds ? (
+              <div className="move-select-floating-actions" onPointerDown={(event) => event.stopPropagation()}>
+                {[
+                  {
+                    key: 'left',
+                    label: t('Move left'),
+                    icon: <ArrowRight size={16} style={{ transform: 'rotate(180deg)' }} />,
+                    style: {
+                      left: (selectedElementsBounds.x - viewport.x) * viewport.zoom - 18,
+                      top: (selectedElementsBounds.y + selectedElementsBounds.height / 2 - viewport.y) * viewport.zoom,
+                      transform: 'translate(-100%, -50%)',
+                    },
+                    onClick: () => handlePushSelectMove('left'),
+                  },
+                  {
+                    key: 'right',
+                    label: t('Move right'),
+                    icon: <ArrowRight size={16} />,
+                    style: {
+                      left: (selectedElementsBounds.x + selectedElementsBounds.width - viewport.x) * viewport.zoom + 18,
+                      top: (selectedElementsBounds.y + selectedElementsBounds.height / 2 - viewport.y) * viewport.zoom,
+                      transform: 'translate(0, -50%)',
+                    },
+                    onClick: () => handlePushSelectMove('right'),
+                  },
+                  {
+                    key: 'up',
+                    label: t('Move up'),
+                    icon: <ArrowRight size={16} style={{ transform: 'rotate(-90deg)' }} />,
+                    style: {
+                      left: (selectedElementsBounds.x + selectedElementsBounds.width / 2 - viewport.x) * viewport.zoom,
+                      top: (selectedElementsBounds.y - viewport.y) * viewport.zoom - 18,
+                      transform: 'translate(-50%, -100%)',
+                    },
+                    onClick: () => handlePushSelectMove('up'),
+                  },
+                  {
+                    key: 'down',
+                    label: t('Move down'),
+                    icon: <ArrowRight size={16} style={{ transform: 'rotate(90deg)' }} />,
+                    style: {
+                      left: (selectedElementsBounds.x + selectedElementsBounds.width / 2 - viewport.x) * viewport.zoom,
+                      top: (selectedElementsBounds.y + selectedElementsBounds.height - viewport.y) * viewport.zoom + 18,
+                      transform: 'translate(-50%, 0)',
+                    },
+                    onClick: () => handlePushSelectMove('down'),
+                  },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="tool-button move-select-floating-action"
+                    title={item.label}
+                    aria-label={item.label}
+                    data-tooltip={item.label}
+                    style={item.style}
+                    onClick={item.onClick}
+                  >
+                    {item.icon}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {tool === 'rotate-select' && selectedElementsBounds ? (
+              <div className="rotate-select-floating-actions" onPointerDown={(event) => event.stopPropagation()}>
+                {[
+                  {
+                    key: 'top',
+                    label: '360°',
+                    degree: 360 as const,
+                    style: {
+                      left: (selectedElementsBounds.x + selectedElementsBounds.width / 2 - viewport.x) * viewport.zoom,
+                      top: (selectedElementsBounds.y - viewport.y) * viewport.zoom - 18,
+                      transform: 'translate(-50%, -100%)',
+                    },
+                  },
+                  {
+                    key: 'right',
+                    label: '90°',
+                    degree: 90 as const,
+                    style: {
+                      left: (selectedElementsBounds.x + selectedElementsBounds.width - viewport.x) * viewport.zoom + 18,
+                      top: (selectedElementsBounds.y + selectedElementsBounds.height / 2 - viewport.y) * viewport.zoom,
+                      transform: 'translate(0, -50%)',
+                    },
+                  },
+                  {
+                    key: 'bottom',
+                    label: '180°',
+                    degree: 180 as const,
+                    style: {
+                      left: (selectedElementsBounds.x + selectedElementsBounds.width / 2 - viewport.x) * viewport.zoom,
+                      top: (selectedElementsBounds.y + selectedElementsBounds.height - viewport.y) * viewport.zoom + 18,
+                      transform: 'translate(-50%, 0)',
+                    },
+                  },
+                  {
+                    key: 'left',
+                    label: '270°',
+                    degree: 270 as const,
+                    style: {
+                      left: (selectedElementsBounds.x - viewport.x) * viewport.zoom - 18,
+                      top: (selectedElementsBounds.y + selectedElementsBounds.height / 2 - viewport.y) * viewport.zoom,
+                      transform: 'translate(-100%, -50%)',
+                    },
+                  },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="tool-button rotate-select-floating-action"
+                    title={item.label}
+                    aria-label={item.label}
+                    data-tooltip={item.label}
+                    style={item.style}
+                    onClick={() => handleRotateSelectRotate(item.degree)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {tool === 'eraser-stroke' && eraserPointer ? (
               <div
                 className="eraser-preview"
@@ -4882,6 +5140,7 @@ export function WhiteboardPage() {
                       background:
                         element.type === 'rectangle' ||
                           element.type === 'ellipse' ||
+                          element.type === 'polygon' ||
                           element.type === 'latex' ||
                           element.type === 'pen' ||
                           element.type === 'file' ||
@@ -5001,13 +5260,14 @@ export function WhiteboardPage() {
                       <svg width={element.width} height={element.height} style={{ overflow: 'visible' }}>
                         {(() => {
                           const pts = (element as PolygonElement).points
-                          const pointsAttr = pts.map((p) => `${p.x},${p.y}`).join(' ')
                           return (
-                            <polygon
-                              points={pointsAttr}
+                            <path
+                              d={polygonPointsToPath(pts)}
                               fill={element.fill}
                               stroke={element.stroke}
                               strokeWidth={element.strokeWidth}
+                              fillRule="evenodd"
+                              clipRule="evenodd"
                               strokeLinejoin="round"
                               strokeLinecap="round"
                               shapeRendering="geometricPrecision"
