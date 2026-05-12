@@ -2001,7 +2001,8 @@ export function WhiteboardPage() {
     elementsRef.current = nextElements
     setElements(nextElements)
     if (pushHistory) {
-      const nextHistory = [...historyRef.current.slice(-59), previousElements]
+      const historyArray = Array.isArray(historyRef.current) ? historyRef.current : []
+      const nextHistory = [...historyArray.slice(-59), previousElements]
       historyRef.current = nextHistory
       futureRef.current = []
       setHistory(nextHistory)
@@ -2011,10 +2012,12 @@ export function WhiteboardPage() {
 
   const undo = useCallback(() => {
     const currentHistory = historyRef.current
-    if (currentHistory.length === 0) return
+    if (!Array.isArray(currentHistory) || currentHistory.length === 0) return
     const prev = currentHistory[currentHistory.length - 1]
+    if (!Array.isArray(prev)) return
     const nextHistory = currentHistory.slice(0, -1)
-    const nextFuture = [elementsRef.current, ...futureRef.current].slice(0, 60)
+    const futureArray = Array.isArray(futureRef.current) ? futureRef.current : []
+    const nextFuture = [elementsRef.current, ...futureArray].slice(0, 60)
     historyRef.current = nextHistory
     futureRef.current = nextFuture
     setHistory(nextHistory)
@@ -2026,9 +2029,11 @@ export function WhiteboardPage() {
 
   const redo = useCallback(() => {
     const currentFuture = futureRef.current
-    if (currentFuture.length === 0) return
+    if (!Array.isArray(currentFuture) || currentFuture.length === 0) return
     const [next, ...rest] = currentFuture
-    const nextHistory = [...historyRef.current, elementsRef.current].slice(-60)
+    if (!Array.isArray(next)) return
+    const historyArray = Array.isArray(historyRef.current) ? historyRef.current : []
+    const nextHistory = [...historyArray, elementsRef.current].slice(-60)
     historyRef.current = nextHistory
     futureRef.current = rest
     setHistory(nextHistory)
