@@ -2692,7 +2692,7 @@ export function WhiteboardPage() {
 
       setDraft((prev) => {
         if (prev?.type !== 'polygon') {
-          const next = { type: 'polygon', points: [point], preview: point } as const
+          const next = { type: 'polygon', points: [point], preview: point }
           setStatusMessage(`Polygon: 1 point`)
           return next
         }
@@ -2856,8 +2856,10 @@ export function WhiteboardPage() {
       setStatusMessage(t('Choose a {tool} file to insert at the selected position.', { tool }))
       return
     }
-    const placed = createPlacedElement(tool, point, getNextZIndex(elements))
-    commitElements([...elements, placed]); setSelectedElementId(placed.id)
+    if (tool === 'graph' || tool === 'ruler' || tool === 'protractor') {
+      const placed = createPlacedElement(tool, point, getNextZIndex(elements))
+      commitElements([...elements, placed]); setSelectedElementId(placed.id)
+    }
   }
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -3330,18 +3332,6 @@ export function WhiteboardPage() {
       return
     }
     setTool(nextTool)
-  }
-  const handleMoveSelectFlip = (axis: 'horizontal' | 'vertical') => {
-    if (!selectedElementsBounds || selectedElements.length === 0) return
-    setElements((prev) => {
-      const selectedIds = new Set(selectedElements.map((element) => element.id))
-      const flipped = prev.map((element) => {
-        if (!selectedIds.has(element.id)) return element
-        return flipElementWithinBounds(element, selectedElementsBounds, axis)
-      })
-      elementsRef.current = flipped
-      return flipped
-    })
   }
   const handleMoveSelectDuplicateFlip = (axis: 'horizontal' | 'vertical', direction: -1 | 1) => {
     if (!selectedElementsBounds || selectedElements.length === 0) return
@@ -3921,7 +3911,7 @@ export function WhiteboardPage() {
               ? {
                 ...message,
                 content: `Thought for ${Math.round(result.thoughtSeconds ?? Math.max(0.1, (Date.now() - requestStartedAt) / 1000))}s`,
-                  detail: result.thought || message.detail,
+                  detail: message.detail,
                 status: 'done',
               }
               : message,

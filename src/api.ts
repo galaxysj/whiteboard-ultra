@@ -4,7 +4,6 @@ import type {
   AgentAskResponse,
   AgentBuildRequest,
   AgentBuildResponse,
-  AgentToolEvent,
   Asset,
   Board,
   BoardElement,
@@ -34,20 +33,6 @@ const parseErrorText = (value: unknown): string => {
   }
   return String(value)
 }
-
-const extractResponseError = async (response: Response) => {
-  const raw = (await response.text()).trim()
-  if (!raw) return `Request failed with ${response.status} ${response.statusText}`.trim()
-  try {
-    const payload = JSON.parse(raw) as { error?: unknown; details?: unknown; message?: unknown }
-    return (
-      parseErrorText(payload.error) ||
-      parseErrorText(payload.details) ||
-      parseErrorText(payload.message) ||
-      raw
-    )
-  } catch {
-    return raw
   }
 }
 
