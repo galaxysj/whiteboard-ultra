@@ -112,6 +112,8 @@ type WubExportPayload = {
   >
 }
 
+type WubImportPayload = WubExportPayload
+
 
 type Viewport = { x: number; y: number; zoom: number }
 type AgentCursorState = {
@@ -148,12 +150,16 @@ function GraphRenderer({
   expressions,
   selected,
   mouseEvents,
+  t,
 }: {
   element: GraphElement
   expressions: string[]
   selected: boolean
   mouseEvents: boolean
+  t: (key: string, replacements?: Record<string, string | number>) => string
 }) {
+  const [mafsResetKey, setMafsResetKey] = useState(0)
+
   const [xMin, xMax] = useMemo<[number, number]>(() => {
     const min = Number.isFinite(element.xMin) ? element.xMin : -8
     const max = Number.isFinite(element.xMax) ? element.xMax : 8
@@ -183,10 +189,25 @@ function GraphRenderer({
     ]
   }, [element.unit, xMin, xMax, yMin, yMax])
 
+  const [renderXMin, renderXMax, renderYMin, renderYMax] = useMemo<
+    [number, number, number, number]
+  >(() => {
+    const spanX = Math.max(1, viewXMax - viewXMin)
+    const spanY = Math.max(1, viewYMax - viewYMin)
+    const extraX = spanX * 4
+    const extraY = spanY * 4
+    return [
+      viewXMin - extraX,
+      viewXMax + extraX,
+      viewYMin - extraY,
+      viewYMax + extraY,
+    ]
+  }, [viewXMin, viewXMax, viewYMin, viewYMax])
+
   const renderables = useMemo(
     () => expressions
-      .flatMap((expression, index) => createGraphRenderables(expression, index, viewXMin, viewXMax, viewYMin, viewYMax)),
-    [expressions, viewXMin, viewXMax, viewYMin, viewYMax],
+      .flatMap((expression, index) => createGraphRenderables(expression, index, renderXMin, renderXMax, renderYMin, renderYMax)),
+    [expressions, renderXMin, renderXMax, renderYMin, renderYMax],
   )
 
   if (renderables.length === 0) {
@@ -195,7 +216,19 @@ function GraphRenderer({
 
   return (
     <div className={`graph-plot-engine ${selected && mouseEvents ? 'graph-plot-engine--interactive' : ''}`}>
+      {selected && mouseEvents ? (
+        <button
+          type="button"
+          className="graph-center-button"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setMafsResetKey((prev) => prev + 1)}
+          title={t('Center')}
+        >
+          {t('Center')}
+        </button>
+      ) : null}
       <Mafs
+        key={`${element.id}-${mafsResetKey}`}
         width="auto"
         height={Math.max(72, Math.floor(element.height))}
         pan={selected && mouseEvents}
@@ -481,6 +514,8 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Manage provider and model lists.': '제공자 및 모델 목록을 관리합니다.',
     'Provider List': '제공자 목록',
     Add: '추가',
+    Import: '가져오기',
+    Export: '내보내기',
     'Provider name': '제공자 이름',
     Compatible: '호환',
     'Base URL (compatible)': 'Base URL (호환)',
@@ -577,6 +612,11 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Move down': '아래로 밀기',
     'Flip up': '위로 뒤집기',
     'Flip down': '아래로 뒤집기',
+    Center: '중앙',
+    Scale: '스케일',
+    'Invalid WUB file': '유효하지 않은 WUB 파일입니다',
+    'Import failed': '가져오기 실패',
+    'Imported {name}': '{name} 가져오기 완료',
   },
   zh: {
     'Loading workspace...': '正在加载工作区...',
@@ -640,6 +680,8 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Manage provider and model lists.': '管理服务商与模型列表。',
     'Provider List': '服务商列表',
     Add: '添加',
+    Import: '导入',
+    Export: '导出',
     'Provider name': '服务商名称',
     Compatible: '兼容',
     'Base URL (compatible)': 'Base URL（兼容）',
@@ -735,6 +777,11 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Move down': '向下推动',
     'Flip up': '向上翻转',
     'Flip down': '向下翻转',
+    Center: '居中',
+    Scale: '缩放',
+    'Invalid WUB file': '无效的 WUB 文件',
+    'Import failed': '导入失败',
+    'Imported {name}': '已导入 {name}',
   },
   ja: {
     'Loading workspace...': 'ワークスペースを読み込み中...',
@@ -798,6 +845,8 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Manage provider and model lists.': 'プロバイダーとモデル一覧を管理します。',
     'Provider List': 'プロバイダー一覧',
     Add: '追加',
+    Import: 'インポート',
+    Export: 'エクスポート',
     'Provider name': 'プロバイダー名',
     Compatible: '互換',
     'Base URL (compatible)': 'Base URL（互換）',
@@ -893,6 +942,11 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Move down': '下へ移動',
     'Flip up': '上に反転',
     'Flip down': '下に反転',
+    Center: '中央',
+    Scale: 'スケール',
+    'Invalid WUB file': '無効な WUB ファイルです',
+    'Import failed': 'インポートに失敗しました',
+    'Imported {name}': '{name} をインポートしました',
   },
 }
 
@@ -992,6 +1046,33 @@ const detectInitialLanguage = (): AppLanguage => {
     return stored as AppLanguage
   }
   return 'en'
+}
+const isIOSUserAgent = () => {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  const platform = navigator.platform || ''
+  const maxTouchPoints = navigator.maxTouchPoints || 0
+  const isClassicIOS = /iPad|iPhone|iPod/.test(ua)
+  // iPadOS desktop UA can look like macOS; use touch points to distinguish.
+  const isIPadOSDesktopUA = platform === 'MacIntel' && maxTouchPoints > 1
+  return isClassicIOS || isIPadOSDesktopUA
+}
+
+const dataUrlToFile = (dataUrl: string, fallbackName: string, fallbackType: string) => {
+  const parts = dataUrl.split(',')
+  if (parts.length < 2) return null
+  const header = parts[0]
+  const body = parts.slice(1).join(',')
+  const mimeMatch = /data:([^;]+);base64/.exec(header)
+  const mimeType = mimeMatch?.[1] || fallbackType || 'application/octet-stream'
+  try {
+    const binary = atob(body)
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+    return new window.File([bytes], fallbackName || 'asset', { type: mimeType })
+  } catch {
+    return null
+  }
 }
 const translateText = (language: AppLanguage, key: string) => {
   if (language === 'en') return key
@@ -1969,8 +2050,26 @@ const rectContains = (
   item.y >= container.y &&
   item.x + item.width <= container.x + container.width &&
   item.y + item.height <= container.y + container.height
-const isSelectableElement = (element: BoardElement, options?: { includePen?: boolean }) =>
-  options?.includePen ? true : element.type !== 'pen'
+const isSelectableElement = (
+  element: BoardElement,
+  options?: {
+    includePen?: boolean
+    includeCompass?: boolean
+    includeMeasureTools?: boolean
+    includeCalculator?: boolean
+  },
+) => {
+  if (options?.includeCompass === false && element.type === 'compass') return false
+  if (
+    options?.includeMeasureTools === false &&
+    (element.type === 'ruler' || element.type === 'protractor')
+  ) {
+    return false
+  }
+  if (options?.includeCalculator === false && isCalculatorHTMLElement(element)) return false
+  if (options?.includePen) return true
+  return element.type !== 'pen'
+}
 const compareElementStack = (a: BoardElement, b: BoardElement) => {
   if (a.type === 'compass' && b.type !== 'compass') return 1
   if (a.type !== 'compass' && b.type === 'compass') return -1
@@ -2012,6 +2111,7 @@ export function WhiteboardPage() {
   const editingTextRef = useRef<HTMLTextAreaElement | null>(null)
   const inlineAgentInputRef = useRef<HTMLTextAreaElement | null>(null)
   const chatWindowRef = useRef<HTMLDivElement | null>(null)
+  const wubFileInputRef = useRef<HTMLInputElement | null>(null)
   const elementsRef = useRef<BoardElement[]>([])
   const dragRef = useRef<DragState>(null)
   const boardUpdatedAtRef = useRef('')
@@ -2029,6 +2129,16 @@ export function WhiteboardPage() {
   const copiedElementsRef = useRef<BoardElement[]>([])
   const historyRef = useRef<BoardElement[][]>([])
   const futureRef = useRef<BoardElement[][]>([])
+  const activeTouchPointsRef = useRef<Map<number, { x: number; y: number }>>(new Map())
+  const touchGestureRef = useRef<
+    | {
+      startDistance: number
+      startMidpoint: { x: number; y: number }
+      startViewport: Viewport
+      worldAtStartMidpoint: Point
+    }
+    | null
+  >(null)
 
   const [boards, setBoards] = useState<Board[]>([])
   const [activeBoardId, setActiveBoardId] = useState('')
@@ -2104,6 +2214,15 @@ export function WhiteboardPage() {
   const [agentCursor, setAgentCursor] = useState<AgentCursorState>({ visible: false, x: 0, y: 0 })
   const [inlineAgent, setInlineAgent] = useState<InlineAgentComposerState | null>(null)
   const [toolbarTooltip, setToolbarTooltip] = useState<ToolbarTooltipState | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<{
+    visible: boolean
+    percent: number
+    fileName: string
+  }>({
+    visible: false,
+    percent: 0,
+    fileName: '',
+  })
   const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null)
   const [thinkingDurationSeconds, setThinkingDurationSeconds] = useState(0)
   const chatMessageOrderRef = useRef(0)
@@ -2137,64 +2256,147 @@ export function WhiteboardPage() {
       return
     }
 
-    // Snapshot values to avoid races with async asset fetching.
-    const boardSnapshot = activeBoard
-    const elementsSnapshot = elementsRef.current
-
-    let boardAssets: Asset[] = []
     try {
-      boardAssets = await api.listAssets(boardSnapshot.id)
-    } catch {
-      boardAssets = []
-    }
+      // Snapshot values to avoid races with async asset fetching.
+      const boardSnapshot = activeBoard
+      const elementsSnapshot = elementsRef.current
 
-    // Best-effort: embed asset bytes as data URLs when same-origin fetch works.
-    const assetsWithData = await Promise.all(
-      boardAssets.map(async (asset) => {
-        try {
+      let boardAssets: Asset[] = []
+      try {
+        boardAssets = await api.listAssets(boardSnapshot.id)
+      } catch {
+        boardAssets = []
+      }
+
+      // Strict mode: every binary must be embedded as base64 in the exported WUB.
+      const assetsWithData = await Promise.all(
+        boardAssets.map(async (asset) => {
           const response = await fetch(asset.sourceUrl)
-          if (!response.ok) return asset
+          if (!response.ok) {
+            throw new Error(`Failed to fetch asset "${asset.name}" (${response.status})`)
+          }
           const blob = await response.blob()
           const dataUrl = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader()
             reader.onload = () => resolve(String(reader.result || ''))
-            reader.onerror = () => reject(new Error('Failed to read asset.'))
+            reader.onerror = () => reject(new Error(`Failed to read asset "${asset.name}".`))
             reader.readAsDataURL(blob)
           })
+          if (!dataUrl.startsWith('data:')) {
+            throw new Error(`Invalid base64 data for asset "${asset.name}".`)
+          }
           return { ...asset, dataUrl }
-        } catch {
-          return asset
-        }
-      }),
-    )
+        }),
+      )
 
-    const payload: WubExportPayload = {
-      format: 'whiteboard-ultra/wub',
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      board: {
-        id: boardSnapshot.id,
-        name: boardSnapshot.name,
-        updatedAt: boardSnapshot.updatedAt,
-      },
-      elements: elementsSnapshot,
-      assets: assetsWithData.map((asset) => ({
-        id: asset.id,
-        kind: asset.kind,
-        name: asset.name,
-        mimeType: asset.mimeType,
-        size: asset.size,
-        storagePath: asset.storagePath,
-        sourceUrl: asset.sourceUrl,
-        createdAt: asset.createdAt,
-        dataUrl: (asset as Asset & { dataUrl?: string }).dataUrl,
-      })),
+      const payload: WubExportPayload = {
+        format: 'whiteboard-ultra/wub',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        board: {
+          id: boardSnapshot.id,
+          name: boardSnapshot.name,
+          updatedAt: boardSnapshot.updatedAt,
+        },
+        elements: elementsSnapshot,
+        assets: assetsWithData.map((asset) => ({
+          id: asset.id,
+          kind: asset.kind,
+          name: asset.name,
+          mimeType: asset.mimeType,
+          size: asset.size,
+          storagePath: asset.storagePath,
+          sourceUrl: asset.sourceUrl,
+          createdAt: asset.createdAt,
+          dataUrl: (asset as Asset & { dataUrl?: string }).dataUrl,
+        })),
+      }
+
+      const missingBinaryAssets = payload.assets.filter((asset) => !asset.dataUrl)
+      if (missingBinaryAssets.length > 0) {
+        throw new Error(`Export blocked: ${missingBinaryAssets.length} asset(s) missing base64 data.`)
+      }
+
+      const filenameSafe = boardSnapshot.name.trim() ? boardSnapshot.name.trim() : 'board'
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/wub+json' })
+      downloadBlob(blob, `${filenameSafe}.wub`)
+      setStatusMessage(t('Saved now'))
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? `Export failed: ${error.message}` : 'Export failed')
+    }
+  }
+
+  const importBoardFromWub = async (file: File) => {
+    if (!activeBoardId) {
+      setStatusMessage(t('Open a board first.'))
+      return
     }
 
-    const filenameSafe = boardSnapshot.name.trim() ? boardSnapshot.name.trim() : 'board'
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/wub+json' })
-    downloadBlob(blob, `${filenameSafe}.wub`)
-    setStatusMessage(t('Saved now'))
+    try {
+      const raw = await file.text()
+      const parsed = JSON.parse(raw) as WubImportPayload
+      if (parsed.format !== 'whiteboard-ultra/wub' || parsed.version !== 1 || !Array.isArray(parsed.elements)) {
+        setStatusMessage(t('Invalid WUB file'))
+        return
+      }
+
+      const assetMap = new Map<string, Asset>()
+      const importAssets = Array.isArray(parsed.assets) ? parsed.assets : []
+      for (const item of importAssets) {
+        if (!item?.dataUrl) continue
+        const fileFromDataUrl = dataUrlToFile(item.dataUrl, item.name || 'asset', item.mimeType || 'application/octet-stream')
+        if (!fileFromDataUrl) continue
+        const uploaded = await api.uploadAsset(activeBoardId, item.kind, fileFromDataUrl, (progress) => {
+          setUploadProgress({
+            visible: true,
+            percent: progress,
+            fileName: fileFromDataUrl.name,
+          })
+        })
+        assetMap.set(item.id, uploaded)
+      }
+
+      const nowIso = new Date().toISOString()
+      const nextElements = parsed.elements.map((element) => {
+        if (element.type !== 'image' && element.type !== 'video' && element.type !== 'file') return element
+        const mapped = assetMap.get(element.assetId)
+        if (!mapped) return element
+        return {
+          ...element,
+          assetId: mapped.id,
+          name: mapped.name,
+          src: mapped.sourceUrl,
+          mimeType: mapped.mimeType,
+          updatedAt: nowIso,
+        }
+      })
+
+      commitElements(nextElements)
+      setSelectedElementId(null)
+      setPendingAsset(null)
+
+      try {
+        const saved = await api.saveElements(activeBoardId, nextElements, boardUpdatedAtRef.current || undefined)
+        boardUpdatedAtRef.current = saved.updatedAt
+        setBoards((prev) => prev.map((board) => (board.id === saved.id ? saved : board)))
+      } catch {
+        // Keep local import state even if save request fails.
+      }
+
+      setStatusMessage(t('Imported {name}', { name: file.name }))
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? `${t('Import failed')}: ${error.message}` : t('Import failed'))
+    } finally {
+      setUploadProgress((prev) => ({ ...prev, visible: false, percent: 0, fileName: '' }))
+    }
+  }
+
+  const openWubImportPicker = () => {
+    if (!activeBoardId) {
+      setStatusMessage(t('Open a board first.'))
+      return
+    }
+    wubFileInputRef.current?.click()
   }
   const selectedChatModel = useMemo(
     () => modelPresets.find((model) => model.id === selectedChatModelId) ?? null,
@@ -2621,6 +2823,25 @@ export function WhiteboardPage() {
       const isTyping = isInput || hasTextSelection
       const key = event.key.toLowerCase()
 
+      // Block browser zoom shortcuts and route them to whiteboard zoom.
+      if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+        if (key === '+' || key === '=' || key === 'add') {
+          event.preventDefault()
+          zoomBy(1.1)
+          return
+        }
+        if (key === '-' || key === '_' || key === 'subtract') {
+          event.preventDefault()
+          zoomBy(0.9)
+          return
+        }
+        if (key === '0') {
+          event.preventDefault()
+          resetView()
+          return
+        }
+      }
+
       if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && key === 's') {
         if (isTyping) return
         event.preventDefault()
@@ -2775,6 +2996,22 @@ export function WhiteboardPage() {
     return () => window.removeEventListener('resize', clampCurrentViewport)
   }, [])
 
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const preventBrowserZoomOnCtrlWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+      }
+    }
+
+    canvas.addEventListener('wheel', preventBrowserZoomOnCtrlWheel, { passive: false })
+    return () => {
+      canvas.removeEventListener('wheel', preventBrowserZoomOnCtrlWheel)
+    }
+  }, [])
+
   const screenToWorld = (clientX: number, clientY: number): Point => {
     const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect) return { x: 0, y: 0 }
@@ -2794,9 +3031,20 @@ export function WhiteboardPage() {
   }
 
   const topElementAtForTool = (point: Point, toolId: CanvasToolId) => {
-    const allowPen = toolId === MOVE_SELECT_TOOL_ID || toolId === PUSH_SELECT_TOOL_ID || toolId === ROTATE_SELECT_TOOL_ID
+    const isMoveFamilyTool =
+      toolId === MOVE_SELECT_TOOL_ID || toolId === PUSH_SELECT_TOOL_ID || toolId === ROTATE_SELECT_TOOL_ID
+    const allowPen = isMoveFamilyTool
+    const allowCompass = !isMoveFamilyTool
+    const allowMeasureTools = !isMoveFamilyTool
+    const allowCalculator = !isMoveFamilyTool
     return sortByZ(elements).find(
-      (element) => isSelectableElement(element, { includePen: allowPen }) && elementBoundsHit(element, point),
+      (element) =>
+        isSelectableElement(element, {
+          includePen: allowPen,
+          includeCompass: allowCompass,
+          includeMeasureTools: allowMeasureTools,
+          includeCalculator: allowCalculator,
+        }) && elementBoundsHit(element, point),
     )
   }
   const isSelectionTool =
@@ -2815,10 +3063,43 @@ export function WhiteboardPage() {
   }
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId)
-    } catch {
-      // ignore capture errors
+    const target = event.target as HTMLElement | null
+    if (target?.closest('video')) {
+      return
+    }
+
+    if (event.pointerType === 'touch') {
+      activeTouchPointsRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+
+      if (activeTouchPointsRef.current.size >= 2) {
+        const points = Array.from(activeTouchPointsRef.current.values())
+        const first = points[0]
+        const second = points[1]
+        const startDistance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y))
+        const startMidpoint = {
+          x: (first.x + second.x) / 2,
+          y: (first.y + second.y) / 2,
+        }
+        touchGestureRef.current = {
+          startDistance,
+          startMidpoint,
+          startViewport: viewport,
+          worldAtStartMidpoint: screenToWorld(startMidpoint.x, startMidpoint.y),
+        }
+        dragRef.current = null
+        setDrag(null)
+        setDraft(null)
+        return
+      }
+    }
+
+    const isAssetPickTool = tool === 'image' || tool === 'video' || tool === 'file'
+    if (!isAssetPickTool) {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } catch {
+        // ignore capture errors
+      }
     }
     const samples = eventToWorldPoints(event)
     const point = samples[samples.length - 1]
@@ -3162,13 +3443,46 @@ export function WhiteboardPage() {
       const placed = createPlacedElement(tool, point, getNextZIndex(elements))
       commitElements([...elements, placed]);
       setSelectedElementId(placed.id)
-      if (tool === 'graph') {
-        setTool('select')
-      }
+      setTool('select')
     }
   }
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') {
+      activeTouchPointsRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      const points = Array.from(activeTouchPointsRef.current.values())
+      if (points.length >= 2) {
+        const first = points[0]
+        const second = points[1]
+        const currentDistance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y))
+        const currentMidpoint = {
+          x: (first.x + second.x) / 2,
+          y: (first.y + second.y) / 2,
+        }
+
+        if (!touchGestureRef.current) {
+          touchGestureRef.current = {
+            startDistance: currentDistance,
+            startMidpoint: currentMidpoint,
+            startViewport: viewport,
+            worldAtStartMidpoint: screenToWorld(currentMidpoint.x, currentMidpoint.y),
+          }
+        }
+
+        const gesture = touchGestureRef.current
+        const rect = canvasRef.current?.getBoundingClientRect()
+        if (gesture && rect) {
+          const zoomRatio = currentDistance / gesture.startDistance
+          const nextZoom = clamp(gesture.startViewport.zoom * zoomRatio, 0.2, 2.6)
+          const rawX = gesture.worldAtStartMidpoint.x - (currentMidpoint.x - rect.left) / nextZoom
+          const rawY = gesture.worldAtStartMidpoint.y - (currentMidpoint.y - rect.top) / nextZoom
+          const clamped = clampViewportPosition(rawX, rawY, nextZoom, rect.width, rect.height)
+          setViewport({ x: clamped.x, y: clamped.y, zoom: nextZoom })
+        }
+        return
+      }
+    }
+
     const samples = eventToWorldPoints(event)
     const point = samples[samples.length - 1]
     pointerScreenRef.current = { x: event.clientX, y: event.clientY }
@@ -3372,6 +3686,13 @@ export function WhiteboardPage() {
   }
 
   const onPointerUp = (event?: React.PointerEvent<HTMLDivElement>) => {
+    if (event?.pointerType === 'touch') {
+      activeTouchPointsRef.current.delete(event.pointerId)
+      if (activeTouchPointsRef.current.size < 2) {
+        touchGestureRef.current = null
+      }
+    }
+
     const activeDrag = dragRef.current
     if (event) {
       try {
@@ -3442,6 +3763,9 @@ export function WhiteboardPage() {
           .filter((element) =>
             isSelectableElement(element, {
               includePen: tool === MOVE_SELECT_TOOL_ID || tool === PUSH_SELECT_TOOL_ID || tool === ROTATE_SELECT_TOOL_ID,
+              includeCompass: !(tool === MOVE_SELECT_TOOL_ID || tool === PUSH_SELECT_TOOL_ID || tool === ROTATE_SELECT_TOOL_ID),
+              includeMeasureTools: !(tool === MOVE_SELECT_TOOL_ID || tool === PUSH_SELECT_TOOL_ID || tool === ROTATE_SELECT_TOOL_ID),
+              includeCalculator: !(tool === MOVE_SELECT_TOOL_ID || tool === PUSH_SELECT_TOOL_ID || tool === ROTATE_SELECT_TOOL_ID),
             }) && rectContains(selectionRect, getElementSelectionBounds(element)),
           )
           .map((e) => e.id)
@@ -3471,6 +3795,12 @@ export function WhiteboardPage() {
   }
 
   const onPointerLeave = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') {
+      activeTouchPointsRef.current.delete(event.pointerId)
+      if (activeTouchPointsRef.current.size < 2) {
+        touchGestureRef.current = null
+      }
+    }
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
       onPointerUp(event)
     }
@@ -3480,6 +3810,12 @@ export function WhiteboardPage() {
   }
 
   const onPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') {
+      activeTouchPointsRef.current.delete(event.pointerId)
+      if (activeTouchPointsRef.current.size < 2) {
+        touchGestureRef.current = null
+      }
+    }
     onPointerUp(event)
     pointerScreenRef.current = null
     setPointerWorld(null)
@@ -3618,8 +3954,13 @@ export function WhiteboardPage() {
     input.type = 'file'
     input.accept = getAssetInputAccept(kind)
     input.style.position = 'fixed'
-    input.style.left = '-9999px'
-    input.style.top = '-9999px'
+    input.style.left = '0'
+    input.style.top = '0'
+    input.style.width = '1px'
+    input.style.height = '1px'
+    input.style.opacity = '0'
+    input.style.pointerEvents = 'none'
+    input.style.zIndex = '-1'
     document.body.appendChild(input)
     input.addEventListener(
       'change',
@@ -3638,7 +3979,12 @@ export function WhiteboardPage() {
     if (nextTool === 'image' || nextTool === 'video' || nextTool === 'file') {
       setTool(nextTool)
       setPendingAsset(null)
-      setStatusMessage(`Click the canvas where you want to insert the ${nextTool}.`)
+      if (isIOSUserAgent()) {
+        setStatusMessage(`Choose a ${nextTool} file, then tap canvas to place it.`)
+        openAssetPicker(nextTool)
+      } else {
+        setStatusMessage(`Click the canvas where you want to insert the ${nextTool}.`)
+      }
       return
     }
     setTool(nextTool)
@@ -3662,8 +4008,8 @@ export function WhiteboardPage() {
         const moved = translateElement(element, dx, dy)
         return {
           ...moved,
-          flipX: axis === 'horizontal' ? !moved.flipX : moved.flipX,
-          flipY: axis === 'vertical' ? !moved.flipY : moved.flipY,
+          flipX: moved.type === 'protractor' ? moved.flipX : axis === 'horizontal' ? !moved.flipX : moved.flipX,
+          flipY: moved.type === 'protractor' ? moved.flipY : axis === 'vertical' ? !moved.flipY : moved.flipY,
           updatedAt: new Date().toISOString(),
         }
       })
@@ -3758,7 +4104,10 @@ export function WhiteboardPage() {
       return
     }
     try {
-      const asset = await api.uploadAsset(activeBoardId, kind, file)
+      setUploadProgress({ visible: true, percent: 0, fileName: file.name })
+      const asset = await api.uploadAsset(activeBoardId, kind, file, (percent) => {
+        setUploadProgress((prev) => ({ ...prev, percent }))
+      })
       setAssets((prev) => [asset, ...prev])
       if (insertPoint && asset.kind === kind) {
         await insertAssetAtPoint(insertPoint, asset)
@@ -3768,7 +4117,9 @@ export function WhiteboardPage() {
         setTool(kind)
         setStatusMessage(`Uploaded ${asset.name}. Click canvas to place it.`)
       }
+      setUploadProgress({ visible: false, percent: 100, fileName: '' })
     } catch (error) {
+      setUploadProgress({ visible: false, percent: 0, fileName: '' })
       setStatusMessage(error instanceof Error ? `Upload failed: ${error.message}` : 'Upload failed')
     }
   }
@@ -4310,6 +4661,14 @@ export function WhiteboardPage() {
       ) ?? null,
     [elements, selectedElementId],
   )
+  const selectedProtractorElement = useMemo(
+    () =>
+      elements.find(
+        (element): element is Extract<BoardElement, { type: 'protractor' }> =>
+          element.id === selectedElementId && element.type === 'protractor',
+      ) ?? null,
+    [elements, selectedElementId],
+  )
   const selectedTextElement = useMemo(
     () =>
       elements.find(
@@ -4617,7 +4976,10 @@ export function WhiteboardPage() {
             <Save size={16} /> {t('Save')}
           </button>
           <button onClick={() => void exportBoardAsWub()} disabled={!activeBoardId}>
-            <Download size={16} /> WUB
+            <Download size={16} /> {t('Export')}
+          </button>
+          <button onClick={openWubImportPicker} disabled={!activeBoardId}>
+            <FolderOpen size={16} /> {t('Import')}
           </button>
           <button
             onClick={() => {
@@ -4632,6 +4994,18 @@ export function WhiteboardPage() {
           </button>
         </div>
       </header>
+      <input
+        ref={wubFileInputRef}
+        type="file"
+        accept=".wub,application/wub+json,application/json"
+        style={{ display: 'none' }}
+        onChange={(event) => {
+          const target = event.currentTarget
+          const selected = target.files?.[0]
+          if (selected) void importBoardFromWub(selected)
+          target.value = ''
+        }}
+      />
 
       <div className={`workspace ${aiOpen ? 'ai-open' : 'ai-closed'}`}>
         <main className="canvas-wrap">
@@ -4940,10 +5314,33 @@ export function WhiteboardPage() {
                 </button>
               </>
             ) : null}
+            {isSelectionTool && selectedProtractorElement ? (
+              <button
+                className={selectedProtractorElement.flipX ? 'tool-button active' : 'tool-button'}
+                onClick={() => {
+                  setElements((prev) => {
+                    const next = prev.map((element) =>
+                      element.id === selectedProtractorElement.id && element.type === 'protractor'
+                        ? {
+                          ...element,
+                          flipX: !element.flipX,
+                          updatedAt: new Date().toISOString(),
+                        }
+                        : element,
+                    )
+                    elementsRef.current = next
+                    return next
+                  })
+                }}
+                title={t('Flip')}
+              >
+                {t('Flip')}
+              </button>
+            ) : null}
             {isSelectionTool && selectedGraphElement ? (
               <>
-                <label className="graph-range-control" title="Scale">
-                  <span>Scale</span>
+                <label className="graph-range-control" title={t('Scale')}>
+                  <span>{t('Scale')}</span>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -5390,7 +5787,7 @@ export function WhiteboardPage() {
                 const interactiveInSelectMode =
                   isSelectionTool &&
                   !drag &&
-                  ((isCalculatorHTMLElement(element) ||
+                  (((selected && isCalculatorHTMLElement(element)) ||
                     (selected &&
                       (element.type === 'iframe' ||
                         element.type === 'html' ||
@@ -5448,7 +5845,9 @@ export function WhiteboardPage() {
                       transform:
                         element.type === 'pen'
                           ? undefined
-                          : `${element.flipX ? 'scaleX(-1) ' : ''}${element.flipY ? 'scaleY(-1) ' : ''}rotate(${element.rotation}deg)`,
+                          : element.type === 'protractor'
+                            ? `rotate(${element.rotation}deg)`
+                            : `${element.flipX ? 'scaleX(-1) ' : ''}${element.flipY ? 'scaleY(-1) ' : ''}rotate(${element.rotation}deg)`,
                     }}
                   >
                     {element.type === 'pen' ? (
@@ -5691,7 +6090,16 @@ export function WhiteboardPage() {
 
                     ) : null}
                     {(element.type === 'image' || element.type === 'video') && element.src ? (
-                      element.type === 'image' ? <img src={element.src} alt={element.name} /> : <video src={element.src} controls />
+                      element.type === 'image' ? (
+                        <img src={element.src} alt={element.name} />
+                      ) : (
+                        <video
+                          src={element.src}
+                          controls
+                          playsInline
+                          preload="metadata"
+                        />
+                      )
                     ) : null}
                     {element.type === 'code' ? (
                       <div className="code-block" onPointerDown={(event) => selected && event.stopPropagation()}>
@@ -5889,6 +6297,7 @@ export function WhiteboardPage() {
                                   expressions={normalizeGraphExpressions(element)}
                                   selected={selected}
                                   mouseEvents={selectedGraphMouseEvents}
+                                  t={t}
                                 />
                               </div>
                               {isInlineEditorOpen ? (
@@ -6063,7 +6472,8 @@ export function WhiteboardPage() {
                                 <circle cx={cx} cy={cy} r={4} fill="#1f5f84" />
                                 <circle cx={cx} cy={cy} r={1.8} fill="#ffffff" />
                                 {Array.from({ length: 181 }).map((_, index) => {
-                                  const angle = (index * Math.PI) / 180
+                                  const degree = element.flipX ? 180 - index : index
+                                  const angle = (degree * Math.PI) / 180
                                   const r1 = outerRadius
                                   const r2 =
                                     index % 10 === 0
@@ -6089,7 +6499,8 @@ export function WhiteboardPage() {
                                 })}
                                 {Array.from({ length: 19 }).map((_, index) => {
                                   const degree = index * 10
-                                  const angle = (degree * Math.PI) / 180
+                                  const mappedDegree = element.flipX ? 180 - degree : degree
+                                  const angle = (mappedDegree * Math.PI) / 180
                                   const x = cx + Math.cos(Math.PI - angle) * labelRadius
                                   const y = cy - Math.sin(Math.PI - angle) * labelRadius
                                   return (
@@ -6593,6 +7004,34 @@ export function WhiteboardPage() {
                 {modal.confirmLabel ? t(modal.confirmLabel) : t('OK')}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {uploadProgress.visible ? (
+        <div className="app-modal-backdrop" onClick={(event) => event.stopPropagation()}>
+          <div className="app-modal" onClick={(event) => event.stopPropagation()}>
+            <h3>Uploading file...</h3>
+            <p>{uploadProgress.fileName}</p>
+            <div
+              style={{
+                width: '100%',
+                height: 10,
+                borderRadius: 999,
+                background: 'rgba(22, 40, 58, 0.14)',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  width: `${uploadProgress.percent}%`,
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #2f7496, #4aa3cf)',
+                  transition: 'width 120ms ease',
+                }}
+              />
+            </div>
+            <p style={{ marginTop: 10, fontWeight: 700 }}>{uploadProgress.percent}%</p>
           </div>
         </div>
       ) : null}

@@ -279,7 +279,7 @@ export const createPlacedElement = (
       } satisfies LatexElement
     case 'ruler':
       return {
-        ...baseElement('ruler', point.x, point.y, 720, 96, zIndex),
+        ...baseElement('ruler', point.x, point.y, 672, 96, zIndex),
         units: 18,
         fill: 'rgba(242, 204, 97, 0.35)',
       } satisfies RulerElement

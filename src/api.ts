@@ -100,17 +100,65 @@ export const api = {
     ),
   listAssets: async (boardId: string) =>
     asJson<Asset[]>(await fetch(`/api/assets?boardId=${encodeURIComponent(boardId)}`)),
-  uploadAsset: async (boardId: string, kind: Asset['kind'], file: File) => {
+  uploadAsset: async (
+    boardId: string,
+    kind: Asset['kind'],
+    file: File,
+    onProgress?: (progressPercent: number) => void,
+  ) => {
     const form = new FormData()
     form.append('boardId', boardId)
     form.append('kind', kind)
     form.append('file', file)
-    return asJson<Asset>(
-      await fetch('/api/assets', {
-        method: 'POST',
-        body: form,
-      }),
-    )
+
+    if (!onProgress) {
+      return asJson<Asset>(
+        await fetch('/api/assets', {
+          method: 'POST',
+          body: form,
+        }),
+      )
+    }
+
+    return new Promise<Asset>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', '/api/assets')
+
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return
+        const progress = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)))
+        onProgress(progress)
+      }
+
+      xhr.onerror = () => reject(new Error('Network error during upload.'))
+
+      xhr.onload = () => {
+        const responseText = xhr.responseText || ''
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve((responseText ? JSON.parse(responseText) : {}) as Asset)
+          } catch {
+            reject(new Error('Invalid JSON response.'))
+          }
+          return
+        }
+
+        try {
+          const payload = responseText ? JSON.parse(responseText) : {}
+          const message =
+            parseErrorText((payload as { error?: unknown; details?: unknown; message?: unknown }).error) ||
+            parseErrorText((payload as { error?: unknown; details?: unknown; message?: unknown }).details) ||
+            parseErrorText((payload as { error?: unknown; details?: unknown; message?: unknown }).message) ||
+            responseText ||
+            `Request failed with ${xhr.status}`
+          reject(new Error(message))
+        } catch {
+          reject(new Error(responseText || `Request failed with ${xhr.status}`))
+        }
+      }
+
+      xhr.send(form)
+    })
   },
   getAISettings: async () =>
     asJson<AIProviderSettings>(await fetch('/api/settings/ai')),
