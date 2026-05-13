@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import getStroke from 'perfect-freehand'
-import functionPlot from 'function-plot'
-import type { FunctionPlotDatum, FunctionPlotOptions } from 'function-plot'
+import { compile as compileMathExpression } from 'mathjs'
+import { Coordinates, Mafs, Plot, Polyline } from 'mafs'
 import html2canvas from 'html2canvas'
 import agentCursorSvg from './assets/cursor.svg'
 import { DraftingCompass } from "lucide-react";
@@ -146,55 +146,101 @@ type ChatMessage = {
 function GraphRenderer({
   element,
   expressions,
+  selected,
+  mouseEvents,
 }: {
   element: GraphElement
   expressions: string[]
+  selected: boolean
+  mouseEvents: boolean
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [xMin, xMax] = useMemo<[number, number]>(() => {
+    const min = Number.isFinite(element.xMin) ? element.xMin : -8
+    const max = Number.isFinite(element.xMax) ? element.xMax : 8
+    return min <= max ? [min, max] : [max, min]
+  }, [element.xMin, element.xMax])
 
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
+  const [yMin, yMax] = useMemo<[number, number]>(() => {
+    const min = Number.isFinite(element.yMin) ? element.yMin : -5
+    const max = Number.isFinite(element.yMax) ? element.yMax : 5
+    return min <= max ? [min, max] : [max, min]
+  }, [element.yMin, element.yMax])
 
-    container.replaceChildren()
+  const [viewXMin, viewXMax, viewYMin, viewYMax] = useMemo<
+    [number, number, number, number]
+  >(() => {
+    const safeUnit = Number.isFinite(element.unit) && element.unit > 0 ? element.unit : 20
+    const zoomFactor = 20 / safeUnit
+    const centerX = (xMin + xMax) / 2
+    const centerY = (yMin + yMax) / 2
+    const halfSpanX = ((xMax - xMin) / 2) * zoomFactor
+    const halfSpanY = ((yMax - yMin) / 2) * zoomFactor
+    return [
+      centerX - halfSpanX,
+      centerX + halfSpanX,
+      centerY - halfSpanY,
+      centerY + halfSpanY,
+    ]
+  }, [element.unit, xMin, xMax, yMin, yMax])
 
-    const data = expressions
-      .map((expression, index) => createFunctionPlotDatum(expression, index))
-      .filter((datum): datum is FunctionPlotDatum => datum !== null)
+  const renderables = useMemo(
+    () => expressions
+      .flatMap((expression, index) => createGraphRenderables(expression, index, viewXMin, viewXMax, viewYMin, viewYMax)),
+    [expressions, viewXMin, viewXMax, viewYMin, viewYMax],
+  )
 
-    if (data.length === 0) return
+  if (renderables.length === 0) {
+    return <div className="graph-plot-engine graph-plot-engine--empty" />
+  }
 
-    const options: FunctionPlotOptions = {
-      target: container,
-      width: Math.max(1, Math.floor(element.width)),
-      height: Math.max(72, Math.floor(element.height)),
-      disableZoom: true,
-      grid: true,
-      xAxis: {
-        domain: [element.xMin, element.xMax],
-      },
-      yAxis: {
-        domain: [element.yMin, element.yMax],
-      },
-      data,
-      tip: {
-        xLine: false,
-        yLine: false,
-      },
-    }
+  return (
+    <div className={`graph-plot-engine ${selected && mouseEvents ? 'graph-plot-engine--interactive' : ''}`}>
+      <Mafs
+        width="auto"
+        height={Math.max(72, Math.floor(element.height))}
+        pan={selected && mouseEvents}
+        zoom={false}
+        preserveAspectRatio="contain"
+        viewBox={{ x: [viewXMin, viewXMax], y: [viewYMin, viewYMax] }}
+      >
+        <Coordinates.Cartesian subdivisions={2} />
+        {renderables.map((renderable) => {
+          if (renderable.kind === 'ofx') {
+            return (
+              <Plot.OfX
+                key={renderable.id}
+                y={renderable.y}
+                domain={renderable.domain}
+                color={renderable.color}
+                weight={2}
+              />
+            )
+          }
 
-    try {
-      functionPlot(options)
-    } catch {
-      container.replaceChildren()
-    }
+          if (renderable.kind === 'ofy') {
+            return (
+              <Plot.OfY
+                key={renderable.id}
+                x={renderable.x}
+                domain={renderable.domain}
+                color={renderable.color}
+                weight={2}
+              />
+            )
+          }
 
-    return () => {
-      container.replaceChildren()
-    }
-  }, [element.height, element.width, element.xMax, element.xMin, element.yMax, element.yMin, expressions])
-
-  return <div ref={containerRef} className="graph-plot-engine" />
+          return (
+            <Polyline
+              key={renderable.id}
+              points={renderable.points}
+              color={renderable.color}
+              weight={2}
+            />
+          )
+        })}
+      </Mafs>
+    </div>
+  )
 }
 type ProviderPreset = {
   id: string
@@ -523,6 +569,7 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Flip left': '왼쪽으로 뒤집기',
     'Flip right': '오른쪽으로 뒤집기',
     'Move Select': '밀기 선택',
+    'Mouse events': '마우스 이벤트',
     'Move grid count': '이동 모눈 수',
     'Move left': '왼쪽으로 밀기',
     'Move right': '오른쪽으로 밀기',
@@ -680,6 +727,7 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Flip left': '向左翻转',
     'Flip right': '向右翻转',
     'Move Select': '推动选择',
+    'Mouse events': '鼠标事件',
     'Move grid count': '移动网格数',
     'Move left': '向左推动',
     'Move right': '向右推动',
@@ -837,6 +885,7 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Flip left': '左に反転',
     'Flip right': '右に反転',
     'Move Select': '移動選択',
+    'Mouse events': 'マウスイベント',
     'Move grid count': '移動グリッド数',
     'Move left': '左へ移動',
     'Move right': '右へ移動',
@@ -1173,6 +1222,38 @@ const getStrokePolygon = (points: Point[], strokeWidth: number) => {
     last: true,
   })
 }
+const getTransformedPenPoints = (element: Extract<BoardElement, { type: 'pen' }>) => {
+  const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 }
+  const angle = degreesToRadians(element.rotation)
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  const scaleX = element.flipX ? -1 : 1
+  const scaleY = element.flipY ? -1 : 1
+  return element.points.map((point) => {
+    const world = { x: element.x + point.x, y: element.y + point.y }
+    const translatedX = world.x - center.x
+    const translatedY = world.y - center.y
+    const rotatedX = translatedX * cos - translatedY * sin
+    const rotatedY = translatedX * sin + translatedY * cos
+    return {
+      x: center.x + rotatedX * scaleX,
+      y: center.y + rotatedY * scaleY,
+    }
+  })
+}
+const pointInPolygon = (point: Point, polygon: Point[]) => {
+  if (polygon.length < 3) return false
+  let inside = false
+  for (let index = 0, prev = polygon.length - 1; index < polygon.length; prev = index, index += 1) {
+    const current = polygon[index]
+    const previous = polygon[prev]
+    const intersects =
+      (current.y > point.y) !== (previous.y > point.y) &&
+      point.x < ((previous.x - current.x) * (point.y - current.y)) / (previous.y - current.y) + current.x
+    if (intersects) inside = !inside
+  }
+  return inside
+}
 const drawStrokePolygon = (ctx: CanvasRenderingContext2D, polygon: number[][], color: string) => {
   if (polygon.length === 0) return
   ctx.beginPath()
@@ -1315,47 +1396,177 @@ const sanitizeGraphRange = (min: number, max: number, fallbackMin: number, fallb
 }
 const GRAPH_COLORS = ['#1f5f84', '#e0607a', '#2f948b', '#9b59b6', '#f39c12']
 
-const normalizeGraphSource = (expression: string) => {
-  let normalized = expression.replace(/\s+/g, '')
-  normalized = normalized.replace(/\^/g, '**')
-  normalized = normalized.replace(/(\d)([a-zA-Z(])/g, '$1*$2')
-  normalized = normalized.replace(/([xyEPI]|\))(?=\()/g, '$1*')
-  normalized = normalized.replace(/([xy])(?=\d)/g, '$1*')
-  normalized = normalized.replace(/([xy)])(?=[a-zA-Z])/g, '$1*')
-  return normalized
+const GRAPH_SAMPLE_COUNT = 240
+const GRAPH_IMPLICIT_GRID_SIZE = 72
+
+const normalizeGraphMathSource = (expression: string) => expression
+  .trim()
+  .replace(/π/g, 'pi')
+  .replace(/\bPI\b/g, 'pi')
+  .replace(/\bLN\b/g, 'ln')
+
+const compileGraphExpression = (expression: string) => {
+  const compiled = compileMathExpression(normalizeGraphMathSource(expression))
+  return (x: number, y: number) => {
+    const value = compiled.evaluate({
+      x,
+      y,
+      pi: Math.PI,
+      e: Math.E,
+      E: Math.E,
+      PI: Math.PI,
+    })
+    return typeof value === 'number' ? value : Number.NaN
+  }
 }
 
-const createFunctionPlotDatum = (expression: string, index: number): FunctionPlotDatum | null => {
-  const normalized = expression.trim()
-  if (!normalized) return null
+const buildSampleRange = (xMin: number, xMax: number) => {
+  const count = Math.max(2, GRAPH_SAMPLE_COUNT)
+  const step = (xMax - xMin) / (count - 1)
+  return Array.from({ length: count }, (_, index) => xMin + step * index)
+}
 
-  const source = normalizeGraphSource(normalized)
-  const color = GRAPH_COLORS[index % GRAPH_COLORS.length]
+const buildContourSampleRange = (min: number, max: number) => {
+  const count = Math.max(2, GRAPH_IMPLICIT_GRID_SIZE)
+  const step = (max - min) / (count - 1)
+  return Array.from({ length: count }, (_, index) => min + step * index)
+}
 
-  if (source.includes('=')) {
-    const parts = source.split('=')
-    if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) return null
-    return {
-      fnType: 'implicit',
-      graphType: 'interval',
-      sampler: 'interval',
-      fn: `${parts[0]} - (${parts[1]})`,
-      color,
-      attr: {
-        'stroke-width': 2,
-      },
+type GraphRenderable =
+  | { kind: 'ofx'; id: string; y: (x: number) => number; domain: [number, number]; color: string }
+  | { kind: 'ofy'; id: string; x: (y: number) => number; domain: [number, number]; color: string }
+  | { kind: 'polyline'; id: string; points: [number, number][]; color: string }
+
+const buildVerticalPolylineSegments = (evaluate: (y: number) => number, yMin: number, yMax: number) => {
+  const segments: [number, number][][] = []
+  let current: [number, number][] = []
+
+  for (const y of buildSampleRange(yMin, yMax)) {
+    const x = evaluate(y)
+    if (typeof x === 'number' && Number.isFinite(x)) {
+      current.push([x, y])
+      continue
+    }
+
+    if (current.length >= 2) segments.push(current)
+    current = []
+  }
+
+  if (current.length >= 2) segments.push(current)
+  return segments
+}
+
+const interpolateImplicitPoint = (
+  x1: number,
+  y1: number,
+  v1: number,
+  x2: number,
+  y2: number,
+  v2: number,
+): [number, number] => {
+  const denominator = v1 - v2
+  const t = Math.abs(denominator) < 1e-9 ? 0.5 : v1 / denominator
+  return [x1 + (x2 - x1) * t, y1 + (y2 - y1) * t]
+}
+
+const buildImplicitSegments = (
+  evaluate: (x: number, y: number) => number,
+  xMin: number,
+  xMax: number,
+  yMin: number,
+  yMax: number,
+) => {
+  const xs = buildContourSampleRange(xMin, xMax)
+  const ys = buildContourSampleRange(yMin, yMax)
+  const values = ys.map((y) => xs.map((x) => {
+    const value = evaluate(x, y)
+    return Number.isFinite(value) ? value : Number.NaN
+  }))
+  const segments: [number, number][][] = []
+
+  for (let row = 0; row < ys.length - 1; row += 1) {
+    for (let col = 0; col < xs.length - 1; col += 1) {
+      const x0 = xs[col]
+      const x1 = xs[col + 1]
+      const y0 = ys[row]
+      const y1 = ys[row + 1]
+      const tl = values[row + 1][col]
+      const tr = values[row + 1][col + 1]
+      const br = values[row][col + 1]
+      const bl = values[row][col]
+      if (![tl, tr, br, bl].every(Number.isFinite)) continue
+
+      const points: [number, number][] = []
+      if ((tl <= 0 && tr >= 0) || (tl >= 0 && tr <= 0)) points.push(interpolateImplicitPoint(x0, y1, tl, x1, y1, tr))
+      if ((tr <= 0 && br >= 0) || (tr >= 0 && br <= 0)) points.push(interpolateImplicitPoint(x1, y1, tr, x1, y0, br))
+      if ((br <= 0 && bl >= 0) || (br >= 0 && bl <= 0)) points.push(interpolateImplicitPoint(x1, y0, br, x0, y0, bl))
+      if ((bl <= 0 && tl >= 0) || (bl >= 0 && tl <= 0)) points.push(interpolateImplicitPoint(x0, y0, bl, x0, y1, tl))
+
+      if (points.length === 2) {
+        segments.push([points[0], points[1]])
+      } else if (points.length === 4) {
+        segments.push([points[0], points[1]], [points[2], points[3]])
+      }
     }
   }
 
-  return {
-    fnType: 'linear',
-    graphType: 'polyline',
-    sampler: 'builtIn',
-    fn: source,
-    color,
-    attr: {
-      'stroke-width': 2,
-    },
+  return segments
+}
+
+const createGraphRenderables = (expression: string, index: number, xMin: number, xMax: number, yMin: number, yMax: number): GraphRenderable[] => {
+  const normalized = expression.trim()
+  if (!normalized) return []
+
+  const color = GRAPH_COLORS[index % GRAPH_COLORS.length]
+  const source = normalizeGraphMathSource(normalized)
+
+  if (/^x=/.test(source)) {
+    try {
+      const evaluate = compileGraphExpression(source.slice(2))
+      const segments = buildVerticalPolylineSegments((y) => evaluate(0, y), yMin, yMax)
+      return segments.map((points, segmentIndex) => ({
+        kind: 'polyline' as const,
+        id: `graph-${index}-vertical-${segmentIndex}`,
+        points,
+        color,
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  if (source.includes('=')) {
+    const parts = source.split('=')
+    if (parts.length !== 2 || !parts[0] || !parts[1]) return []
+
+    try {
+      const evaluate = compileGraphExpression(`(${parts[0]}) - (${parts[1]})`)
+      return buildImplicitSegments((x, y) => evaluate(x, y), xMin, xMax, yMin, yMax)
+        .map((points, segmentIndex) => ({
+          kind: 'polyline' as const,
+          id: `graph-${index}-implicit-${segmentIndex}`,
+          points,
+          color,
+        }))
+    } catch {
+      return []
+    }
+  }
+
+  const targetExpression = /^y=/.test(source) ? source.slice(2) : source
+
+  try {
+    const evaluate = compileGraphExpression(targetExpression)
+    const fn = (x: number) => evaluate(x, 0)
+    return [{
+      kind: 'ofx' as const,
+      id: `graph-${index}-ofx`,
+      y: fn,
+      domain: [xMin, xMax] as [number, number],
+      color,
+    }]
+  } catch {
+    return []
   }
 }
 
@@ -1641,6 +1852,11 @@ const isCodeElement = (element: BoardElement): element is CodeElement => element
 const isEditableTextElement = (element: BoardElement): element is Extract<BoardElement, { type: 'text' | 'markdown' }> =>
   element.type === 'text' || element.type === 'markdown'
 const elementBoundsHit = (element: BoardElement, point: Point) => {
+  if (element.type === 'pen') {
+    const transformedPoints = getTransformedPenPoints(element)
+    const polygon = getStrokePolygon(transformedPoints, element.strokeWidth).map(([x, y]) => ({ x, y }))
+    return pointInPolygon(point, polygon)
+  }
   if (element.type === 'compass') {
     return getCompassHitZone(element, point) !== null
   }
@@ -1680,6 +1896,17 @@ const elementBoundsHit = (element: BoardElement, point: Point) => {
   )
 }
 const getElementSelectionBounds = (element: BoardElement) => {
+  if (element.type === 'pen') {
+    const transformedPoints = getTransformedPenPoints(element)
+    const xs = transformedPoints.map((item) => item.x)
+    const ys = transformedPoints.map((item) => item.y)
+    const padding = Math.max(8, element.strokeWidth * 2.5)
+    const minX = Math.min(...xs) - padding
+    const minY = Math.min(...ys) - padding
+    const maxX = Math.max(...xs) + padding
+    const maxY = Math.max(...ys) + padding
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+  }
   if (element.type === 'compass') {
     const { hinge, leftStart, leftTip, rightStart, rightTip } = getCompassGeometry(element)
     const xs = [hinge.x, leftStart.x, leftTip.x, rightStart.x, rightTip.x]
@@ -1812,6 +2039,7 @@ export function WhiteboardPage() {
   const setSelectedElementId = (id: string | null) => setSelectedElementIds(id ? [id] : [])
   const [tool, setTool] = useState<CanvasToolId>('select')
   const [pushSelectGridCount, setPushSelectGridCount] = useState(1)
+  const [pushSelectGridCountDraft, setPushSelectGridCountDraft] = useState('1')
   const [rotateSelectClockwise, setRotateSelectClockwise] = useState(true)
   const [viewport, setViewport] = useState<Viewport>(boardCenter)
   const [draft, setDraft] = useState<DraftState>(null)
@@ -1872,6 +2100,7 @@ export function WhiteboardPage() {
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [codeLanguage, setCodeLanguage] = useState('javascript')
   const [graphExpressionDrafts, setGraphExpressionDrafts] = useState<string[]>([])
+  const [graphScaleDraft, setGraphScaleDraft] = useState('20')
   const [agentCursor, setAgentCursor] = useState<AgentCursorState>({ visible: false, x: 0, y: 0 })
   const [inlineAgent, setInlineAgent] = useState<InlineAgentComposerState | null>(null)
   const [toolbarTooltip, setToolbarTooltip] = useState<ToolbarTooltipState | null>(null)
@@ -4096,6 +4325,7 @@ export function WhiteboardPage() {
       ) ?? null,
     [elements, selectedElementId],
   )
+  const selectedGraphMouseEvents = selectedGraphElement?.mouseEvents ?? true
   const selectedElements = useMemo(
     () => elements.filter((element) => selectedElementIds.includes(element.id)),
     [elements, selectedElementIds],
@@ -4140,10 +4370,50 @@ export function WhiteboardPage() {
   useEffect(() => {
     if (!selectedGraphElement) {
       setGraphExpressionDrafts([])
+      setGraphScaleDraft('20')
       return
     }
     setGraphExpressionDrafts(normalizeGraphExpressions(selectedGraphElement))
-  }, [selectedGraphElement?.id, selectedGraphElement?.expressions])
+    setGraphScaleDraft(String(selectedGraphElement.unit || 20))
+  }, [selectedGraphElement?.id, selectedGraphElement?.expressions, selectedGraphElement?.unit])
+  useEffect(() => {
+    setPushSelectGridCountDraft(String(pushSelectGridCount))
+  }, [pushSelectGridCount])
+  const commitPushSelectGridCountDraft = () => {
+    const rawValue = pushSelectGridCountDraft.trim()
+    if (!rawValue) {
+      setPushSelectGridCountDraft(String(pushSelectGridCount))
+      return
+    }
+    const parsed = Number(rawValue)
+    if (!Number.isFinite(parsed)) {
+      setPushSelectGridCountDraft(String(pushSelectGridCount))
+      return
+    }
+    const nextValue = Math.max(1, Math.round(parsed))
+    setPushSelectGridCount(nextValue)
+    setPushSelectGridCountDraft(String(nextValue))
+  }
+  const commitGraphScaleDraft = () => {
+    if (!selectedGraphElement) return
+    const rawValue = graphScaleDraft.trim()
+    if (!rawValue) {
+      setGraphScaleDraft(String(selectedGraphElement.unit || 20))
+      return
+    }
+    const parsed = Number(rawValue)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setGraphScaleDraft(String(selectedGraphElement.unit || 20))
+      return
+    }
+    const nextScaleInput = Math.max(1, Math.min(100, Math.round(parsed)))
+    updateSelectedGraphElement({ unit: nextScaleInput })
+    setGraphScaleDraft(String(nextScaleInput))
+  }
+  const commitGraphMouseEventsDraft = (value: boolean) => {
+    if (!selectedGraphElement) return
+    updateSelectedGraphElement({ mouseEvents: value })
+  }
   const visibleWorldRect = useMemo(() => {
     const rect = canvasRef.current?.getBoundingClientRect()
     const width = rect?.width ?? 0
@@ -4457,11 +4727,20 @@ export function WhiteboardPage() {
               <label className="toolbar-select" title={t('Move grid count')}>
                 <ArrowRight size={13} />
                 <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={pushSelectGridCount}
-                  onChange={(event) => setPushSelectGridCount(Math.max(1, Number(event.target.value) || 1))}
+                  type="text"
+                  inputMode="numeric"
+                  value={pushSelectGridCountDraft}
+                  onChange={(event) => setPushSelectGridCountDraft(event.target.value)}
+                  onBlur={commitPushSelectGridCountDraft}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      commitPushSelectGridCountDraft()
+                    }
+                    if (event.key === 'Escape') {
+                      setPushSelectGridCountDraft(String(pushSelectGridCount))
+                    }
+                  }}
                   aria-label={t('Move grid count')}
                 />
               </label>
@@ -4663,58 +4942,33 @@ export function WhiteboardPage() {
             ) : null}
             {isSelectionTool && selectedGraphElement ? (
               <>
-                <label className="graph-range-control" title="X min">
-                  <span>Xmin</span>
+                <label className="graph-range-control" title="Scale">
+                  <span>Scale</span>
                   <input
-                    type="number"
-                    value={selectedGraphElement.xMin}
-                    onChange={(event) => {
-                      const nextMin = Number(event.target.value)
-                      if (!Number.isFinite(nextMin)) return
-                      const [xMin, xMax] = sanitizeGraphRange(nextMin, selectedGraphElement.xMax, -8, 8)
-                      updateSelectedGraphElement({ xMin, xMax })
+                    type="text"
+                    inputMode="numeric"
+                    value={graphScaleDraft}
+                    onChange={(event) => setGraphScaleDraft(event.target.value)}
+                    onBlur={commitGraphScaleDraft}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        commitGraphScaleDraft()
+                      }
+                      if (event.key === 'Escape') {
+                        setGraphScaleDraft(String(selectedGraphElement.unit || 20))
+                      }
                     }}
                   />
                 </label>
-                <label className="graph-range-control" title="X max">
-                  <span>Xmax</span>
-                  <input
-                    type="number"
-                    value={selectedGraphElement.xMax}
-                    onChange={(event) => {
-                      const nextMax = Number(event.target.value)
-                      if (!Number.isFinite(nextMax)) return
-                      const [xMin, xMax] = sanitizeGraphRange(selectedGraphElement.xMin, nextMax, -8, 8)
-                      updateSelectedGraphElement({ xMin, xMax })
-                    }}
-                  />
-                </label>
-                <label className="graph-range-control" title="Y min">
-                  <span>Ymin</span>
-                  <input
-                    type="number"
-                    value={selectedGraphElement.yMin}
-                    onChange={(event) => {
-                      const nextMin = Number(event.target.value)
-                      if (!Number.isFinite(nextMin)) return
-                      const [yMin, yMax] = sanitizeGraphRange(nextMin, selectedGraphElement.yMax, -5, 5)
-                      updateSelectedGraphElement({ yMin, yMax })
-                    }}
-                  />
-                </label>
-                <label className="graph-range-control" title="Y max">
-                  <span>Ymax</span>
-                  <input
-                    type="number"
-                    value={selectedGraphElement.yMax}
-                    onChange={(event) => {
-                      const nextMax = Number(event.target.value)
-                      if (!Number.isFinite(nextMax)) return
-                      const [yMin, yMax] = sanitizeGraphRange(selectedGraphElement.yMin, nextMax, -5, 5)
-                      updateSelectedGraphElement({ yMin, yMax })
-                    }}
-                  />
-                </label>
+                <button
+                  type="button"
+                  className={selectedGraphMouseEvents ? 'tool-button active' : 'tool-button'}
+                  onClick={() => commitGraphMouseEventsDraft(!selectedGraphMouseEvents)}
+                  title={t('Mouse events')}
+                >
+                  {t('Mouse events')}
+                </button>
               </>
             ) : null}
             {(tool === 'line' || tool === 'arrow' || tool === 'rectangle' || tool === 'ellipse' || tool === 'polygon') ? (
@@ -5129,6 +5383,10 @@ export function WhiteboardPage() {
                   selected && isSelectionTool && element.type === 'graph'
                     ? getGraphInlineEditorHeight(graphExpressionDrafts.length)
                     : 0
+                const graphControlHeight =
+                  selected && isSelectionTool && element.type === 'graph'
+                    ? 34
+                    : 0
                 const interactiveInSelectMode =
                   isSelectionTool &&
                   !drag &&
@@ -5166,7 +5424,7 @@ export function WhiteboardPage() {
                         element.type === 'pen'
                           ? CANVAS_HEIGHT
                           : element.type === 'graph'
-                            ? element.height + graphInlineEditorHeight
+                            ? element.height + graphInlineEditorHeight + graphControlHeight
                             : element.height,
                       zIndex: getRenderZIndex(element, maxElementZIndex),
                       overflow:
@@ -5195,18 +5453,26 @@ export function WhiteboardPage() {
                   >
                     {element.type === 'pen' ? (
                       <svg width={CANVAS_WIDTH} height={CANVAS_HEIGHT} style={{ overflow: 'visible' }}>
-                        <path
-                          d={strokePolygonToPath(
-                            getStrokePolygon(
-                              element.points.map((point) => ({
-                                x: element.x + point.x,
-                                y: element.y + point.y,
-                              })),
-                              element.strokeWidth,
-                            ),
-                          )}
-                          fill={element.stroke}
-                        />
+                        <g
+                          transform={
+                            element.flipX || element.flipY || element.rotation
+                              ? `translate(${element.x + element.width / 2} ${element.y + element.height / 2}) scale(${element.flipX ? -1 : 1} ${element.flipY ? -1 : 1}) rotate(${element.rotation}) translate(${-element.x - element.width / 2} ${-element.y - element.height / 2})`
+                              : undefined
+                          }
+                        >
+                          <path
+                            d={strokePolygonToPath(
+                              getStrokePolygon(
+                                element.points.map((point) => ({
+                                  x: element.x + point.x,
+                                  y: element.y + point.y,
+                                })),
+                                element.strokeWidth,
+                              ),
+                            )}
+                            fill={element.stroke}
+                          />
+                        </g>
                       </svg>
                     ) : null}
                     {element.type === 'line' ? (
@@ -5602,7 +5868,12 @@ export function WhiteboardPage() {
                       </svg>
                     ) : null}
                     {element.type === 'graph' ? (
-                      <div className="graph" onPointerDown={(event) => selected && event.stopPropagation()}>
+                      <div
+                        className="graph"
+                        onPointerDown={(event) => {
+                          if (selectedGraphMouseEvents) event.stopPropagation()
+                        }}
+                      >
                         {(() => {
                           const isInlineEditorOpen = selected && isSelectionTool
                           const editorRowCount = Math.max(1, graphExpressionDrafts.length)
@@ -5613,10 +5884,15 @@ export function WhiteboardPage() {
                           return (
                             <>
                               <div className="graph-plot">
-                                <GraphRenderer element={normalizedElement} expressions={normalizeGraphExpressions(element)} />
+                                <GraphRenderer
+                                  element={normalizedElement}
+                                  expressions={normalizeGraphExpressions(element)}
+                                  selected={selected}
+                                  mouseEvents={selectedGraphMouseEvents}
+                                />
                               </div>
                               {isInlineEditorOpen ? (
-                                <div className="graph-inline-editor" style={{ minHeight: inlineEditorHeight }}>
+                                <div className="graph-inline-editor" style={{ minHeight: inlineEditorHeight + 34 }}>
                                   <div className="graph-inline-list">
                                     {graphExpressionDrafts.map((expression, index) => (
                                       <div key={`graph-expr-${index}`} className="graph-inline-row">
@@ -5828,7 +6104,16 @@ export function WhiteboardPage() {
                         </svg>
                       </div>
                     ) : null}
-                    {visuallySelected && element.type !== 'ruler' && element.type !== 'line' && element.type !== 'arrow' && !isCalculatorHTMLElement(element) ? <span className="resize-handle" /> : null}
+                    {visuallySelected && element.type !== 'ruler' && element.type !== 'line' && element.type !== 'arrow' && !isCalculatorHTMLElement(element) ? (
+                      <span
+                        className="resize-handle"
+                        style={
+                          element.type === 'graph'
+                            ? { bottom: Math.max(2, graphInlineEditorHeight + graphControlHeight + 2) }
+                            : undefined
+                        }
+                      />
+                    ) : null}
                     {visuallySelected ? (
                       element.type === 'line' || element.type === 'arrow' ? (
                         <span

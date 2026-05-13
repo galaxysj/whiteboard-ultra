@@ -132,6 +132,7 @@ export interface GraphElement extends ElementBase {
   yMin: number
   yMax: number
   expressions: string[]
+  mouseEvents?: boolean
 }
 
 export interface LatexElement extends ElementBase {

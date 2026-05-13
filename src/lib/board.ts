@@ -74,7 +74,7 @@ const getLatexBoxSize = (latex: string, fontSize: number) => {
   const textUnits = estimateLatexTextLength(latex)
   return {
     width: Math.max(72, Math.round(fontSize * (textUnits * 0.62 + 1.35))),
-    height: Math.max(42, Math.round(fontSize * 1.95)),
+    height: Math.max(56, Math.round(fontSize * 2.45)),
   }
 }
 
@@ -235,6 +235,7 @@ export const createPlacedElement = (
         yMin: -5,
         yMax: 5,
         expressions: ['x'],
+        mouseEvents: true,
       } satisfies GraphElement
     case 'text':
       return {

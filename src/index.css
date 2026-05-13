@@ -256,6 +256,15 @@ h3 {
   outline: none;
 }
 
+.toolbar-select input {
+  width: 56px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  outline: none;
+  min-width: 0;
+}
+
 .graph-range-control {
   display: inline-flex;
   align-items: center;
@@ -286,6 +295,32 @@ h3 {
 
 .graph-range-control {
   width: 90px;
+}
+
+.graph-toggle-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(73, 95, 105, 0.18);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--dark);
+  white-space: nowrap;
+}
+
+.graph-toggle-control input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+.graph-toggle-control span {
+  color: #5f6d79;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .eraser-size input[type='range'] {
@@ -590,6 +625,8 @@ h3 {
   bottom: 2px;
   border-radius: 2px;
   background: var(--orange);
+  z-index: 6;
+  pointer-events: auto;
 }
 
 .rotate-handle {
@@ -602,6 +639,12 @@ h3 {
   border-radius: 999px;
   background: #2f7496;
   border: 2px solid #fff;
+  z-index: 6;
+  pointer-events: auto;
+}
+
+.element-graph .resize-handle {
+  bottom: auto;
 }
 
 .shape {
@@ -711,7 +754,7 @@ h3 {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   border-radius: 10px;
-  background: linear-gradient(180deg, rgba(252, 254, 255, 0.95), rgba(243, 248, 252, 0.95));
+  background: linear-gradient(180deg, rgba(14, 20, 28, 0.98), rgba(19, 27, 37, 0.98));
 }
 
 .graph-plot {
@@ -724,11 +767,38 @@ h3 {
   height: 100%;
   overflow: hidden;
   pointer-events: none;
+  --mafs-bg: #0f1720;
+  --mafs-fg: #d7e3ee;
+  --mafs-origin-color: #d7e3ee;
+  --mafs-line-color: rgba(215, 227, 238, 0.2);
+  --mafs-axis-stroke-width: 1.5px;
+}
+
+.graph-plot-engine--interactive {
+  pointer-events: auto;
 }
 
 .graph-plot-engine svg {
   width: 100%;
   height: 100%;
+}
+
+.graph-plot-engine .MafsView {
+  background: linear-gradient(180deg, rgba(16, 24, 34, 0.98), rgba(10, 16, 24, 0.98));
+}
+
+.graph-plot-engine {
+  cursor: grab;
+}
+
+.graph-plot-engine:active {
+  cursor: grabbing;
+}
+
+
+.element-graph.selected .resize-handle,
+.element-graph.selected .rotate-handle {
+  pointer-events: auto;
 }
 
 .graph-inline-editor {
@@ -892,17 +962,22 @@ h3 {
 .latex {
   width: 100%;
   height: 100%;
-  padding: 10px;
+  padding: 14px 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 18px;
   text-align: center;
+  overflow: visible;
+  line-height: 1.2;
+  box-sizing: border-box;
 }
 
 .latex .katex-display {
   margin: 0;
   font-size: 1em;
+  overflow: visible;
+  padding: 0.18em 0;
 }
 
 .latex .katex {
@@ -911,6 +986,9 @@ h3 {
   justify-content: center;
   max-width: 100%;
   font-size: 1em;
+  line-height: 1.2;
+  overflow: visible;
+  padding: 0.08em 0;
 }
 
 .text-box-content,
