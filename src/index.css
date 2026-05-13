@@ -1339,25 +1339,26 @@ h3 {
   width: 100%;
 }
 
-.chat-toggle-thought-btn {
-  width: 22px;
-  height: 22px;
+.ai-panel .chat-toggle-thought-btn {
+  flex: none;
+  width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(25, 44, 58, 0.18);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
-  color: rgba(25, 44, 58, 0.7);
+  border: none !important;
+  background: transparent !important;
+  color: rgba(25, 44, 58, 0.5);
   cursor: pointer;
-  margin-left: 8px;
+  margin-left: 4px;
   padding: 0;
   line-height: 1;
+  transition: color 0.14s ease;
 }
 .chat-toggle-thought-btn:hover {
-  background: rgba(255, 255, 255, 0.95);
+  background: transparent !important;
   color: rgba(25, 44, 58, 0.9);
-  border-color: rgba(25, 44, 58, 0.28);
 }
 
 .chat-thought-detail {

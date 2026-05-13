@@ -6817,8 +6817,8 @@ export function WhiteboardPage() {
                       ) : message.role === 'thought' ? (
                         message.status === 'thinking' ? (
                           <div className={`chat-thought-pill thinking ${expandedThoughts[message.id] ? 'expanded' : ''}`}>
-                            <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-                              {t('Thinking for {seconds}s', { seconds: thinkingDurationSeconds })}
+                            <div className="chat-thought-header" style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
+                              <span style={{ flex: 1 }}>{t('Thinking for {seconds}s', { seconds: thinkingDurationSeconds })}</span>
                               {selectedChatModel?.reasoning && message.detail && (
                                 <button
                                   className="chat-toggle-thought-btn"
@@ -6826,21 +6826,21 @@ export function WhiteboardPage() {
                                   aria-label={expandedThoughts[message.id] ? t('Close') : t('Open')}
                                   title={expandedThoughts[message.id] ? t('Close') : t('Open')}
                                 >
-                                  {expandedThoughts[message.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                  {expandedThoughts[message.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                 </button>
                               )}
-                            </span>
+                            </div>
+                            <div className="chat-thinking-shimmer" />
                             {selectedChatModel?.reasoning && expandedThoughts[message.id] && (
                               <div className="chat-thought-detail">
                                 {message.detail}
                               </div>
                             )}
-                            <div className="chat-thinking-shimmer" />
                           </div>
                         ) : (
                           <div className={`chat-thought-pill ${expandedThoughts[message.id] ? 'expanded' : ''}`}>
-                            <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-                              {message.content}
+                            <div className="chat-thought-header" style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
+                              <span style={{ flex: 1 }}>{message.content}</span>
                               {selectedChatModel?.reasoning && message.detail && (
                                 <button
                                   className="chat-toggle-thought-btn"
@@ -6848,10 +6848,10 @@ export function WhiteboardPage() {
                                   aria-label={expandedThoughts[message.id] ? t('Close') : t('Open')}
                                   title={expandedThoughts[message.id] ? t('Close') : t('Open')}
                                 >
-                                  {expandedThoughts[message.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                  {expandedThoughts[message.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                 </button>
                               )}
-                            </span>
+                            </div>
                             {selectedChatModel?.reasoning && expandedThoughts[message.id] && (
                               <div className="chat-thought-detail">
                                 {message.detail}
