@@ -222,6 +222,7 @@ export const createPlacedElement = (
         src: payload?.asset?.sourceUrl ?? '',
         mimeType: payload?.asset?.mimeType ?? 'application/octet-stream',
         fill: type === 'file' ? 'rgba(246, 231, 201, 0.95)' : 'rgba(255,255,255,0.92)',
+        lockRatio: type === 'image' || type === 'video',
       } satisfies AssetElement
     case 'compass':
       return {
@@ -368,10 +369,31 @@ export const resizeElement = (
       : element.type === 'line' || element.type === 'arrow'
         ? 0
         : 24
+
+  let finalWidth = Math.max(minSize, width)
+  let finalHeight = Math.max(minSize, height)
+
+  if (element.lockRatio) {
+    let ratio = element.width / Math.max(1, element.height)
+
+    if (element.type === 'image' || element.type === 'video') {
+      const asset = element as AssetElement
+      if (asset.intrinsicWidth && asset.intrinsicHeight) {
+        ratio = asset.intrinsicWidth / asset.intrinsicHeight
+      }
+    }
+
+    if (Math.abs(width - element.width) > Math.abs(height - element.height)) {
+      finalHeight = finalWidth / ratio
+    } else {
+      finalWidth = finalHeight * ratio
+    }
+  }
+
   const next = {
     ...element,
-    width: Math.max(minSize, width),
-    height: Math.max(minSize, height),
+    width: finalWidth,
+    height: finalHeight,
     updatedAt: now(),
   }
 

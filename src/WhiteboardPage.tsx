@@ -62,22 +62,25 @@ import { api } from './api.ts'
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
-  type AIProviderSettings,
-  type AgentBuildResponse,
-  type AgentConversationMessage,
-  type AgentToolAction,
-  type AgentToolEvent,
-  type Asset,
-  type Board,
-  type BoardElement,
-  type CodeElement,
-  type GraphElement,
-  type MonacoElement,
-  type Point,
-  type PolygonElement,
-  type ShapeElement,
-  type ToolCategory,
-  type ToolId,
+} from '../shared/types.ts'
+import type {
+  AIProviderSettings,
+  AgentBuildResponse,
+  AgentConversationMessage,
+  AgentToolAction,
+  AgentToolEvent,
+  Asset,
+  AssetElement,
+  Board,
+  BoardElement,
+  CodeElement,
+  GraphElement,
+  MonacoElement,
+  Point,
+  PolygonElement,
+  ShapeElement,
+  ToolCategory,
+  ToolId,
 } from '../shared/types.ts'
 import {
   createPenElement,
@@ -603,6 +606,7 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Counterclockwise': '반시계 방향',
     'Flip left': '왼쪽으로 뒤집기',
     'Flip right': '오른쪽으로 뒤집기',
+    'Lock Ratio': '비율 고정',
     'Move Select': '밀기 선택',
     'Mouse events': '마우스 이벤트',
     'Move grid count': '이동 모눈 수',
@@ -768,6 +772,7 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Counterclockwise': '逆时针',
     'Flip left': '向左翻转',
     'Flip right': '向右翻转',
+    'Lock Ratio': '锁定比例',
     'Move Select': '推动选择',
     'Mouse events': '鼠标事件',
     'Move grid count': '移动网格数',
@@ -933,6 +938,7 @@ const TRANSLATIONS: Record<Exclude<AppLanguage, 'en'>, Record<string, string>> =
     'Counterclockwise': '反時計回り',
     'Flip left': '左に反転',
     'Flip right': '右に反転',
+    'Lock Ratio': '比率を固定',
     'Move Select': '移動選択',
     'Mouse events': 'マウスイベント',
     'Move grid count': '移動グリッド数',
@@ -2567,6 +2573,8 @@ export function WhiteboardPage() {
           ...baseElement,
           width,
           height,
+          intrinsicWidth: width,
+          intrinsicHeight: height,
           updatedAt: new Date().toISOString(),
         }
       } catch {
@@ -4807,6 +4815,14 @@ export function WhiteboardPage() {
       ) ?? null,
     [elements, selectedElementId],
   )
+  const selectedAssetElement = useMemo(
+    () =>
+      elements.find(
+        (element): element is AssetElement =>
+          element.id === selectedElementId && (element.type === 'image' || element.type === 'video'),
+      ) ?? null,
+    [elements, selectedElementId],
+  )
   const selectedGraphMouseEvents = selectedGraphElement?.mouseEvents ?? true
   const selectedElements = useMemo(
     () => elements.filter((element) => selectedElementIds.includes(element.id)),
@@ -4829,6 +4845,34 @@ export function WhiteboardPage() {
       elementsRef.current = next
       return next
     })
+  }
+  const updateSelectedAssetElement = (patch: Partial<AssetElement>) => {
+    if (!selectedAssetElement) return
+    setElements((prev) => {
+      const now = new Date().toISOString()
+      const next = prev.map((element) =>
+        element.id === selectedAssetElement.id && (element.type === 'image' || element.type === 'video')
+          ? {
+            ...element,
+            ...patch,
+            updatedAt: now,
+          }
+          : element,
+      )
+      elementsRef.current = next
+      return next
+    })
+  }
+  const toggleSelectedAssetLockRatio = () => {
+    if (!selectedAssetElement) return
+    const nextLock = !selectedAssetElement.lockRatio
+    if (nextLock && selectedAssetElement.intrinsicWidth && selectedAssetElement.intrinsicHeight) {
+      const ratio = selectedAssetElement.intrinsicWidth / selectedAssetElement.intrinsicHeight
+      const nextHeight = selectedAssetElement.width / ratio
+      updateSelectedAssetElement({ lockRatio: true, height: nextHeight })
+    } else {
+      updateSelectedAssetElement({ lockRatio: nextLock })
+    }
   }
   const commitSelectedGraphExpressions = () => {
     if (!selectedGraphElement) return
@@ -5490,6 +5534,17 @@ export function WhiteboardPage() {
                   {t('Mouse events')}
                 </button>
               </>
+            ) : null}
+            {isSelectionTool && selectedAssetElement ? (
+              <button
+                type="button"
+                className={selectedAssetElement.lockRatio ? 'tool-button active' : 'tool-button'}
+                onClick={toggleSelectedAssetLockRatio}
+                title={t('Lock Ratio')}
+              >
+                {selectedAssetElement.lockRatio}
+                {t('Lock Ratio')}
+              </button>
             ) : null}
             {(tool === 'line' || tool === 'arrow' || tool === 'rectangle' || tool === 'ellipse' || tool === 'polygon') ? (
               <>

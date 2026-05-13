@@ -54,6 +54,7 @@ export interface ElementBase {
   width: number
   height: number
   rotation: number
+  lockRatio?: boolean
   flipX?: boolean
   flipY?: boolean
   stroke: string
@@ -114,6 +115,8 @@ export interface AssetElement extends ElementBase {
   name: string
   src: string
   mimeType: string
+  intrinsicWidth?: number
+  intrinsicHeight?: number
 }
 
 export interface CompassElement extends ElementBase {
