@@ -102,12 +102,16 @@ const baseElement = <T extends ToolId>(
 })
 
 export const normalizeRect = (a: Point, b: Point, minWidth = 0, minHeight = minWidth) => {
-  const dx = b.x - a.x
-  const dy = b.y - a.y
-  const width = Math.max(Math.abs(dx), minWidth)
-  const height = Math.max(Math.abs(dy), minHeight)
-  const x = dx < 0 ? a.x - width : a.x
-  const y = dy < 0 ? a.y - height : a.y
+  const x1 = Math.min(a.x, b.x)
+  const y1 = Math.min(a.y, b.y)
+  const x2 = Math.max(a.x, b.x)
+  const y2 = Math.max(a.y, b.y)
+
+  const x = Math.floor(x1)
+  const y = Math.floor(y1)
+  const width = Math.max(minWidth, Math.ceil(x2) - x)
+  const height = Math.max(minHeight, Math.ceil(y2) - y)
+
   return { x, y, width, height }
 }
 
@@ -119,11 +123,13 @@ export const createShapeElement = (
   options?: { fill?: string; stroke?: string },
 ): BoardElement => {
   if (type === 'line' || type === 'arrow') {
-    const padding = 4
-    const x = Math.min(start.x, end.x) - padding
-    const y = Math.min(start.y, end.y) - padding
-    const width = Math.max(1, Math.abs(end.x - start.x)) + padding * 2
-    const height = Math.max(1, Math.abs(end.y - start.y)) + padding * 2
+    // 충분한 패딩을 사용하여 렌더링 시 잘림 현상을 방지하고 좌표를 정수화하여 미세 이동 방지
+    const padding = 20
+    const x = Math.floor(Math.min(start.x, end.x) - padding)
+    const y = Math.floor(Math.min(start.y, end.y) - padding)
+    const width = Math.ceil(Math.max(start.x, end.x) + padding) - x
+    const height = Math.ceil(Math.max(start.y, end.y) + padding) - y
+
     return {
       ...baseElement(type, x, y, width, height, zIndex),
       stroke: options?.stroke ?? '#183153',
@@ -151,10 +157,10 @@ export const createPolygonElement = (
   const points = absolutePoints.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
   const xs = points.map((point) => point.x)
   const ys = points.map((point) => point.y)
-  const x = Math.min(...xs)
-  const y = Math.min(...ys)
-  const width = Math.max(8, Math.max(...xs) - x)
-  const height = Math.max(8, Math.max(...ys) - y)
+  const x = Math.floor(Math.min(...xs) - 8)
+  const y = Math.floor(Math.min(...ys) - 8)
+  const width = Math.ceil(Math.max(...xs) + 8) - x
+  const height = Math.ceil(Math.max(...ys) + 8) - y
   return {
     ...baseElement('polygon', x, y, width, height, zIndex),
     points: points.map((point) => ({ x: point.x - x, y: point.y - y })),
@@ -171,10 +177,10 @@ export const createPenElement = (
 ): PenElement => {
   const xs = points.map((point) => point.x)
   const ys = points.map((point) => point.y)
-  const x = Math.min(...xs)
-  const y = Math.min(...ys)
-  const width = Math.max(8, Math.max(...xs) - x)
-  const height = Math.max(8, Math.max(...ys) - y)
+  const x = Math.floor(Math.min(...xs) - 8)
+  const y = Math.floor(Math.min(...ys) - 8)
+  const width = Math.ceil(Math.max(...xs) + 8) - x
+  const height = Math.ceil(Math.max(...ys) + 8) - y
   return {
     ...baseElement('pen', x, y, width, height, zIndex),
     points: points.map((point) => ({ x: point.x - x, y: point.y - y })),

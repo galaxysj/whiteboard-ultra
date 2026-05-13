@@ -1322,6 +1322,21 @@ const getTransformedPenPoints = (element: Extract<BoardElement, { type: 'pen' }>
     }
   })
 }
+const transformElementLocalPointToWorld = (
+  element: BoardElement,
+  localPoint: Point,
+) => {
+  const world = { x: element.x + localPoint.x, y: element.y + localPoint.y }
+  const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 }
+  const angle = degreesToRadians(element.rotation)
+  const rotated = element.rotation ? rotateAround(world, center, angle) : world
+  return {
+    x: center.x + (rotated.x - center.x) * (element.flipX ? -1 : 1),
+    y: center.y + (rotated.y - center.y) * (element.flipY ? -1 : 1),
+  }
+}
+const getTransformedPolygonPoints = (element: Extract<BoardElement, { type: 'polygon' }>) =>
+  element.points.map((point) => transformElementLocalPointToWorld(element, point))
 const pointInPolygon = (point: Point, polygon: Point[]) => {
   if (polygon.length < 3) return false
   let inside = false
@@ -1651,7 +1666,7 @@ const createGraphRenderables = (expression: string, index: number, xMin: number,
   }
 }
 
-const renderRectangleSvg = (element: ShapeElement) => {
+const renderRectangleSvg = (element: ShapeElement, selected = false) => {
   const svgWidth = Math.max(1, element.width)
   const svgHeight = Math.max(1, element.height)
   const thinX = isTinyShapeAxis(element.width)
@@ -1709,6 +1724,20 @@ const renderRectangleSvg = (element: ShapeElement) => {
   }
   return (
     <svg width={svgWidth} height={svgHeight} style={{ overflow: 'visible' }}>
+      {selected ? (
+        <rect
+          x={0}
+          y={0}
+          width={element.width}
+          height={element.height}
+          fill="none"
+          stroke="rgba(246, 167, 30, 0.7)"
+          strokeWidth={element.strokeWidth + 4}
+          strokeLinejoin="round"
+          shapeRendering="geometricPrecision"
+          vectorEffect="non-scaling-stroke"
+        />
+      ) : null}
       <rect
         x={0}
         y={0}
@@ -1724,7 +1753,7 @@ const renderRectangleSvg = (element: ShapeElement) => {
     </svg>
   )
 }
-const renderEllipseSvg = (element: ShapeElement) => {
+const renderEllipseSvg = (element: ShapeElement, selected = false) => {
   const svgWidth = Math.max(1, element.width)
   const svgHeight = Math.max(1, element.height)
   const thinX = isTinyShapeAxis(element.width)
@@ -1782,6 +1811,20 @@ const renderEllipseSvg = (element: ShapeElement) => {
   }
   return (
     <svg width={svgWidth} height={svgHeight} style={{ overflow: 'visible' }}>
+      {selected ? (
+        <ellipse
+          cx={element.width / 2}
+          cy={element.height / 2}
+          rx={element.width / 2}
+          ry={element.height / 2}
+          fill="none"
+          stroke="rgba(246, 167, 30, 0.7)"
+          strokeWidth={element.strokeWidth + 4}
+          strokeLinejoin="round"
+          shapeRendering="geometricPrecision"
+          vectorEffect="non-scaling-stroke"
+        />
+      ) : null}
       <ellipse
         cx={element.width / 2}
         cy={element.height / 2}
@@ -1959,6 +2002,19 @@ const elementBoundsHit = (element: BoardElement, point: Point) => {
       localPoint.y <= center.y + padding
     )
   }
+  if (element.type === 'polygon') {
+    const transformedPoints = getTransformedPolygonPoints(element)
+    return pointInPolygon(point, transformedPoints)
+  }
+  if (element.type === 'ellipse') {
+    const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 }
+    const localPoint = element.rotation
+      ? unrotatePoint(point, center, degreesToRadians(element.rotation))
+      : point
+    const dx = (localPoint.x - center.x) / Math.max(1, element.width / 2)
+    const dy = (localPoint.y - center.y) / Math.max(1, element.height / 2)
+    return dx * dx + dy * dy <= 1
+  }
   if (element.rotation) {
     const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 }
     const localPoint = unrotatePoint(point, center, degreesToRadians(element.rotation))
@@ -2010,6 +2066,18 @@ const getElementSelectionBounds = (element: BoardElement) => {
     const minY = Math.min(worldStart.y, worldEnd.y) - padding
     const maxY = Math.max(worldStart.y, worldEnd.y) + padding
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+  }
+  if (element.type === 'polygon') {
+    const transformedPoints = getTransformedPolygonPoints(element)
+    const xs = transformedPoints.map((item) => item.x)
+    const ys = transformedPoints.map((item) => item.y)
+    const padding = Math.max(6, element.strokeWidth * 2)
+    return {
+      x: Math.min(...xs) - padding,
+      y: Math.min(...ys) - padding,
+      width: Math.max(...xs) - Math.min(...xs) + padding * 2,
+      height: Math.max(...ys) - Math.min(...ys) + padding * 2,
+    }
   }
   if (!element.rotation) {
     return { x: element.x, y: element.y, width: element.width, height: element.height }
@@ -3505,7 +3573,19 @@ export function WhiteboardPage() {
       setElements(eraseAtPoints(source, eraserPointsRef.current))
       return
     }
-    if (draft?.type === 'shape') return setDraft({ ...draft, end: point })
+    if (draft?.type === 'shape') {
+      let endPoint = point
+      if (event.shiftKey && (draft.tool === 'line' || draft.tool === 'arrow')) {
+        const dx = Math.abs(point.x - draft.start.x)
+        const dy = Math.abs(point.y - draft.start.y)
+        if (dx > dy) {
+          endPoint = { x: point.x, y: draft.start.y }
+        } else {
+          endPoint = { x: draft.start.x, y: point.y }
+        }
+      }
+      return setDraft({ ...draft, end: endPoint })
+    }
     if (draft?.type === 'polygon') {
       return setDraft((prev) => (prev?.type === 'polygon' ? { ...prev, preview: point } : prev))
     }
@@ -3995,28 +4075,48 @@ export function WhiteboardPage() {
       const selectedIds = new Set(selectedElements.map((element) => element.id))
       const originals = prev.filter((element) => selectedIds.has(element.id))
       if (originals.length === 0) return prev
-      const clones = originals.map((element) => ({
-        ...cloneElementDeep(element),
-        id: createLocalId(element.type),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }))
-      const offsetGap = GRID_STEP * 2
-      const dx = axis === 'horizontal' ? direction * (selectedElementsBounds.width + offsetGap) : 0
-      const dy = axis === 'vertical' ? direction * (selectedElementsBounds.height + offsetGap) : 0
-      const nextClones = clones.map((element) => {
-        const moved = translateElement(element, dx, dy)
+
+      const groupCenter = {
+        x: selectedElementsBounds.x + selectedElementsBounds.width / 2,
+        y: selectedElementsBounds.y + selectedElementsBounds.height / 2,
+      }
+
+      const clones = originals.map((element) => {
+        const cloned = cloneElementDeep(element)
+        const elementCenter = { x: cloned.x + cloned.width / 2, y: cloned.y + cloned.height / 2 }
+
+        let newCenterX = elementCenter.x
+        let newCenterY = elementCenter.y
+        let nextFlipX = cloned.flipX
+        let nextFlipY = cloned.flipY
+
+        if (axis === 'horizontal') {
+          newCenterX = groupCenter.x - (elementCenter.x - groupCenter.x)
+          nextFlipX = cloned.type === 'protractor' ? cloned.flipX : !cloned.flipX
+        } else {
+          newCenterY = groupCenter.y - (elementCenter.y - groupCenter.y)
+          nextFlipY = cloned.type === 'protractor' ? cloned.flipY : !cloned.flipY
+        }
+
         return {
-          ...moved,
-          flipX: moved.type === 'protractor' ? moved.flipX : axis === 'horizontal' ? !moved.flipX : moved.flipX,
-          flipY: moved.type === 'protractor' ? moved.flipY : axis === 'vertical' ? !moved.flipY : moved.flipY,
+          ...cloned,
+          id: createLocalId(element.type),
+          x: newCenterX - cloned.width / 2,
+          y: newCenterY - cloned.height / 2,
+          flipX: nextFlipX,
+          flipY: nextFlipY,
+          createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }
       })
+
+      const offsetGap = GRID_STEP * 2
+      const dx = axis === 'horizontal' ? direction * (selectedElementsBounds.width + offsetGap) : 0
+      const dy = axis === 'vertical' ? direction * (selectedElementsBounds.height + offsetGap) : 0
+
+      const nextClones = clones.map((element) => translateElement(element, dx, dy))
       const next = [...nextClones, ...prev].map((element, index) => ({ ...element, zIndex: index + 1 }))
       elementsRef.current = next
-      // Keep the original selection active after duplicating+flipping,
-      // so repeated flips continue to operate on the same source elements.
       setSelectedElementIds([...selectedIds])
       return next
     })
@@ -4059,13 +4159,36 @@ export function WhiteboardPage() {
         : degrees === 360
           ? 360
           : ((360 - degrees) % 360) as 90 | 180 | 270
-      const rotatedCopies = originals.map((element) => ({
-        ...cloneElementDeep(element),
-        id: createLocalId(element.type),
-        createdAt: now,
-        updatedAt: now,
-        rotation: normalizeAngle(element.rotation + appliedDegrees),
-      }))
+
+      const groupCenter = {
+        x: selectedElementsBounds.x + selectedElementsBounds.width / 2,
+        y: selectedElementsBounds.y + selectedElementsBounds.height / 2,
+      }
+      const angleRad = degreesToRadians(appliedDegrees)
+
+      const rotatedCopies = originals.map((element) => {
+        const cloned = cloneElementDeep(element)
+        const elementCenter = {
+          x: cloned.x + cloned.width / 2,
+          y: cloned.y + cloned.height / 2,
+        }
+        const rotatedCenter = rotateAround(elementCenter, groupCenter, angleRad)
+
+        // Handedness check: if exactly one axis is flipped, the rotation direction is reversed
+        const isFlippedHandedness = cloned.flipX !== cloned.flipY
+        const rotationDelta = isFlippedHandedness ? -appliedDegrees : appliedDegrees
+
+        return {
+          ...cloned,
+          id: createLocalId(element.type),
+          createdAt: now,
+          updatedAt: now,
+          rotation: normalizeAngle(cloned.rotation + rotationDelta),
+          x: rotatedCenter.x - cloned.width / 2,
+          y: rotatedCenter.y - cloned.height / 2,
+        }
+      })
+
       const rotatedBounds = getSelectionBounds(rotatedCopies)
       if (!rotatedBounds) return prev
       const dx =
@@ -5959,25 +6082,39 @@ export function WhiteboardPage() {
                         })()}
                       </svg>
                     ) : null}
-                    {element.type === 'rectangle' ? renderRectangleSvg(element) : null}
-                    {element.type === 'ellipse' ? renderEllipseSvg(element) : null}
+                    {element.type === 'rectangle' ? renderRectangleSvg(element, visuallySelected) : null}
+                    {element.type === 'ellipse' ? renderEllipseSvg(element, visuallySelected) : null}
                     {element.type === 'polygon' ? (
                       <svg width={element.width} height={element.height} style={{ overflow: 'visible' }}>
                         {(() => {
                           const pts = (element as PolygonElement).points
                           return (
-                            <path
-                              d={polygonPointsToPath(pts)}
-                              fill={element.fill}
-                              stroke={element.stroke}
-                              strokeWidth={element.strokeWidth}
-                              fillRule="evenodd"
-                              clipRule="evenodd"
-                              strokeLinejoin="round"
-                              strokeLinecap="round"
-                              shapeRendering="geometricPrecision"
-                              vectorEffect="non-scaling-stroke"
-                            />
+                            <>
+                              {visuallySelected ? (
+                                <path
+                                  d={polygonPointsToPath(pts)}
+                                  fill="none"
+                                  stroke="rgba(246, 167, 30, 0.7)"
+                                  strokeWidth={element.strokeWidth + 4}
+                                  strokeLinejoin="round"
+                                  strokeLinecap="round"
+                                  shapeRendering="geometricPrecision"
+                                  vectorEffect="non-scaling-stroke"
+                                />
+                              ) : null}
+                              <path
+                                d={polygonPointsToPath(pts)}
+                                fill={element.fill}
+                                stroke={element.stroke}
+                                strokeWidth={element.strokeWidth}
+                                fillRule="evenodd"
+                                clipRule="evenodd"
+                                strokeLinejoin="round"
+                                strokeLinecap="round"
+                                shapeRendering="geometricPrecision"
+                                vectorEffect="non-scaling-stroke"
+                              />
+                            </>
                           )
                         })()}
                       </svg>

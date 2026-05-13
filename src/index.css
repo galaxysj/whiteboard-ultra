@@ -613,6 +613,13 @@ h3 {
   outline: none;
 }
 
+.element-rectangle.selected,
+.element-ellipse.selected,
+.element-polygon.selected,
+.element-pen.selected {
+  outline: none;
+}
+
 .pen-selection {
   background: transparent;
 }
