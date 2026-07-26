@@ -16,5 +16,5 @@ AI-powered digital whiteboard. React + Vite frontend and an Express API server, 
 - There is no automated test suite.
 
 ### Notes
-- Node `>= 20.19.0` is required (VM has Node 22). npm is the package manager (`package-lock.json`).
+- Supported Node versions are `^20.19.0`, `^22.13.0`, or `>=24` (the VM has a compatible Node 22 release). npm is the package manager (`package-lock.json`).
 - AI features (Ask / Build / Insert) require an AI provider API key configured at runtime through the in-app settings UI (stored in SQLite). The core whiteboard (drawing, shapes, embeds, math tools) works without any key. No `.env` is needed to run the app.
